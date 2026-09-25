@@ -1,8 +1,9 @@
 package by.pranovich.testing.entity;
 
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
 
 public class CompilerTest {
     @Before
@@ -12,7 +13,8 @@ public class CompilerTest {
     @Test
     public void testCompile() {
         Compiler compiler = new Compiler("");
-        boolean result = compiler.compile();
-        Assert.assertEquals(true, result);
+        boolean expected = true;
+        boolean actual = compiler.compile();
+        assertEquals(expected, actual);
     }
 }

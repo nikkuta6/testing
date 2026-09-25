@@ -9,10 +9,13 @@ public class Compiler {
     }
 
     public boolean compile() {
+        boolean result;
         if (syntaxError == null || syntaxError.getMessage() == null) {
-            return true;
+            result = true;
+        } else {
+            result = false;
         }
-        return false;
+        return result;
     }
 
     public SyntaxError getSyntaxError() {
