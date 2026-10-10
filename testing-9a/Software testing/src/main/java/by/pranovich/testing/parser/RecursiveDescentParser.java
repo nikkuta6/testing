@@ -4,13 +4,13 @@ import java.util.List;
 
 public class RecursiveDescentParser {
 
-    // Двухсимвольные операции проверяются раньше односимвольных
     private static final List<String> BINARY_OPERATORS = List.of(
-            "<=", ">=", "==", "!=", "&&", "||",
+            "<>", "<=", ">=", "==", "&&", "||",
             "+", "-", "*", "/", "<", ">"
     );
 
     private final String input;
+    private final CodeGenerator codegen = new CodeGenerator();
     private int pos = 0;
 
     public RecursiveDescentParser(String input) {
@@ -18,33 +18,39 @@ public class RecursiveDescentParser {
     }
 
     /**
-     * Разбирает всё выражение.
+     * Разбирает выражение и заодно генерирует байт-код.
      *
-     * @return true, если весь ввод был разобран без остатка,
-     * false — если после выражения остались лишние символы
+     * @return true, если весь ввод был разобран без остатка
      */
     public boolean parse() {
+        codegen.reset();
         parseExpression();
-        return isEndOfInput();
+        if (!isEndOfInput()) {
+            return false;
+        }
+        codegen.emit(Opcode.HALT);
+        return true;
     }
 
     /**
-     * Выражение := Унарное {бинарная операция Унарное}
+     * Байт-код, сгенерированный последним успешным parse().
      */
+    public Program getProgram() {
+        return codegen.toProgram();
+    }
+
+    // expression := unary { binaryOp unary }
     private void parseExpression() {
         parseUnary();
 
-        while (matchBinaryOperator() != null) {
+        String op;
+        while ((op = matchBinaryOperator()) != null) {
             parseUnary();
+            codegen.emitBinary(op);   // порядок: левый, правый, операция
         }
     }
 
-    /**
-     * Унарное := ["+" | "-" | "!"] операнд
-     *
-     * Префикс "!" допустим только перед именем или выражением в скобках,
-     * поэтому "!2" и "!!a" недопустимы.
-     */
+    // unary := ("+" | "-") operand | "!" (name | "(" expression ")") | operand
     private void parseUnary() {
         skipWhitespace();
 
@@ -54,9 +60,13 @@ public class RecursiveDescentParser {
 
         char current = input.charAt(pos);
 
-        if (current == '+' || current == '-') {
+        if (current == '+') {
+            pos++;
+            parseOperand();                 // унарный плюс — no-op
+        } else if (current == '-') {
             pos++;
             parseOperand();
+            codegen.emit(Opcode.NEG);
         } else if (current == '!' && !isNotEqualsOperator()) {
             pos++;
             skipWhitespace();
@@ -66,14 +76,13 @@ public class RecursiveDescentParser {
                         + currentSymbol() + " на позиции " + pos);
             }
             parseOperand();
+            codegen.emit(Opcode.NOT);
         } else {
             parseOperand();
         }
     }
 
-    /**
-     * Операнд := имя | константа | "(" выражение ")"
-     */
+    // operand := name | constant | "(" expression ")" { "!" }
     private void parseOperand() {
         skipWhitespace();
 
@@ -85,42 +94,39 @@ public class RecursiveDescentParser {
 
         if (current == '(') {
             pos++;
-            parseExpression(); // рекурсивный вызов для вложенного выражения
+            parseExpression();
             skipWhitespace();
             expectClosingBracket();
         } else if (Character.isLetter(current)) {
-            parseName();
+            codegen.emitLoad(parseName());
         } else if (Character.isDigit(current)) {
-            parseConstant();
+            codegen.emitPush(parseConstant());
         } else {
             throw error("Ожидался операнд (имя, константа или скобка), но найдено: '"
                     + currentSymbol() + "' на позиции " + pos);
         }
 
-        parseFactorial();
+        // Постфиксные факториалы: "3!", "3 !", "2!!"
+        while (isFactorial()) {
+            pos++;
+            codegen.emit(Opcode.FACT);
+        }
     }
 
-    // имя := буква {буква}
-    private void parseName() {
-        // Внутри самого имени (между буквами) пробелов быть не должно
+    private String parseName() {
+        int start = pos;
         while (!isEndOfInput() && Character.isLetter(input.charAt(pos))) {
             pos++;
         }
+        return input.substring(start, pos);
     }
 
-    // константа := цифра {цифра}
-    private void parseConstant() {
-        // Внутри самого числа (между цифрами) пробелов быть не должно
+    private long parseConstant() {
+        int start = pos;
         while (!isEndOfInput() && Character.isDigit(input.charAt(pos))) {
             pos++;
         }
-    }
-
-    // факториал := {"!"}, пробелы между скобками допустимы: "3 !"
-    private void parseFactorial() {
-        while (isFactorial()) {
-            pos++;
-        }
+        return Long.parseLong(input.substring(start, pos));
     }
 
     private void expectClosingBracket() {
@@ -131,14 +137,8 @@ public class RecursiveDescentParser {
         pos++;
     }
 
-    /**
-     * Съедает бинарную операцию, если она есть в текущей позиции.
-     *
-     * @return текст операции или null, если операции нет
-     */
     private String matchBinaryOperator() {
         skipWhitespace();
-
         for (String operator : BINARY_OPERATORS) {
             if (input.startsWith(operator, pos)) {
                 pos += operator.length();
@@ -148,7 +148,6 @@ public class RecursiveDescentParser {
         return null;
     }
 
-    // "!" перед операндом является факториалом, "!=" и "!==" — операциями
     private boolean isFactorial() {
         skipWhitespace();
         return !isEndOfInput() && input.charAt(pos) == '!' && !isNotEqualsOperator();
