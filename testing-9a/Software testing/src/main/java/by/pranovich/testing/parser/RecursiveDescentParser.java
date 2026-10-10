@@ -169,7 +169,6 @@ public class RecursiveDescentParser {
     }
 
     private boolean isEndOfInput() {
-        skipWhitespace();
         return pos >= input.length();
     }
 
