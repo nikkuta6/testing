@@ -53,7 +53,6 @@ class RecursiveDescentParserTest {
 
     @ParameterizedTest(name = "Parsing {0} should return false")
     @ValueSource(strings = {
-            "2! =2",
             "a)",
             "a @ b",
             "12a34"

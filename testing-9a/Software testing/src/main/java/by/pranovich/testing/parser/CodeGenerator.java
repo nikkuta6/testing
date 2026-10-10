@@ -5,11 +5,15 @@ import java.util.List;
 
 /**
  * Накопитель инструкций учебного стекового байт-кода.
- * Парсер вызывает методы emit* по ходу разбора.
+ * Парсер вызывает методы emit* по ходу разбора и патчит переходы через patch().
  */
 public class CodeGenerator {
 
     private final List<Instruction> instructions = new ArrayList<>();
+
+    public int size() {
+        return instructions.size();
+    }
 
     public void emit(Opcode opcode) {
         instructions.add(Instruction.of(opcode));
@@ -19,7 +23,7 @@ public class CodeGenerator {
         instructions.add(Instruction.of(opcode, operand));
     }
 
-    public void emitPush(long value) {
+    public void emitPush(double value) {
         emit(Opcode.PUSH, value);
     }
 
@@ -27,20 +31,35 @@ public class CodeGenerator {
         emit(Opcode.LOAD, name);
     }
 
+    public void emitStore(String name) {
+        emit(Opcode.STORE, name);
+    }
+
     public void emitBinary(String operator) {
         emit(opcodeFor(operator));
     }
 
     /**
-     * Очистить буфер перед повторным разбором.
+     * Эмитит JMP/JZ с заглушкой в операнде, возвращает индекс для последующего patch().
      */
+    public int emitJumpPlaceholder(Opcode opcode) {
+        int index = instructions.size();
+        instructions.add(Instruction.of(opcode, -1));
+        return index;
+    }
+
+    /**
+     * Заменяет операнд инструкции по индексу, не меняя её opcode.
+     */
+    public void patch(int index, int target) {
+        Instruction old = instructions.get(index);
+        instructions.set(index, new Instruction(old.opcode(), target));
+    }
+
     public void reset() {
         instructions.clear();
     }
 
-    /**
-     * Снимок текущего буфера в виде неизменяемой программы.
-     */
     public Program toProgram() {
         return new Program(instructions);
     }
