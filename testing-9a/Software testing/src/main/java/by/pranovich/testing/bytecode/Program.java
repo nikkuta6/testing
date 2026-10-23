@@ -1,7 +1,8 @@
-package by.pranovich.testing.parser;
+package by.pranovich.testing.bytecode;
 
 import java.util.List;
 
+/** Immutable sequence of instructions ready for execution. */
 public final class Program {
 
     private final List<Instruction> instructions;
@@ -15,11 +16,11 @@ public final class Program {
     }
 
     public String disassemble() {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < instructions.size(); i++) {
-            sb.append(String.format("%04d  %s%n", i, instructions.get(i)));
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < instructions.size(); index++) {
+            result.append(String.format("%04d  %s%n", index, instructions.get(index)));
         }
-        return sb.toString();
+        return result.toString();
     }
 
     @Override

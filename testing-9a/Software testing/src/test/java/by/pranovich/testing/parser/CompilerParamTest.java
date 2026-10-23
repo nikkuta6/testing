@@ -1,5 +1,7 @@
 package by.pranovich.testing.parser;
 
+import by.pranovich.testing.bytecode.Program;
+import by.pranovich.testing.runtime.VirtualMachine;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

@@ -1,13 +1,10 @@
-package by.pranovich.testing.parser;
+package by.pranovich.testing.bytecode;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Накопитель инструкций учебного стекового байт-кода.
- * Парсер вызывает методы emit* по ходу разбора и патчит переходы через patch().
- */
-public class CodeGenerator {
+/** Builds stack-machine instructions while the source is being parsed. */
+public final class CodeGenerator {
 
     private final List<Instruction> instructions = new ArrayList<>();
 
@@ -35,25 +32,39 @@ public class CodeGenerator {
         emit(Opcode.STORE, name);
     }
 
+    public void emitArrayNew(String name) {
+        emit(Opcode.ARRAY_NEW, name);
+    }
+
+    public void emitArrayInit(String name, int elementCount, boolean explicitSize) {
+        emit(Opcode.ARRAY_INIT, new ArrayInitializer(name, elementCount, explicitSize));
+    }
+
+    public void emitArrayLoad(String name) {
+        emit(Opcode.ARRAY_LOAD, name);
+    }
+
+    public void emitArrayStore(String name) {
+        emit(Opcode.ARRAY_STORE, name);
+    }
+
+    public void emitCall(String name, int argumentCount) {
+        emit(Opcode.CALL, new FunctionCall(name, argumentCount));
+    }
+
     public void emitBinary(String operator) {
         emit(opcodeFor(operator));
     }
 
-    /**
-     * Эмитит JMP/JZ с заглушкой в операнде, возвращает индекс для последующего patch().
-     */
     public int emitJumpPlaceholder(Opcode opcode) {
         int index = instructions.size();
         instructions.add(Instruction.of(opcode, -1));
         return index;
     }
 
-    /**
-     * Заменяет операнд инструкции по индексу, не меняя её opcode.
-     */
-    public void patch(int index, int target) {
-        Instruction old = instructions.get(index);
-        instructions.set(index, new Instruction(old.opcode(), target));
+    public void patchJump(int index, int target) {
+        Instruction instruction = instructions.get(index);
+        instructions.set(index, new Instruction(instruction.opcode(), target));
     }
 
     public void reset() {
@@ -64,8 +75,8 @@ public class CodeGenerator {
         return new Program(instructions);
     }
 
-    private Opcode opcodeFor(String op) {
-        return switch (op) {
+    private Opcode opcodeFor(String operator) {
+        return switch (operator) {
             case "+" -> Opcode.ADD;
             case "-" -> Opcode.SUB;
             case "*" -> Opcode.MUL;
@@ -78,7 +89,8 @@ public class CodeGenerator {
             case "<>" -> Opcode.NE;
             case "&&" -> Opcode.AND;
             case "||" -> Opcode.OR;
-            default -> throw new IllegalArgumentException("Неизвестный бинарный оператор: " + op);
+            default -> throw new IllegalArgumentException(
+                    "Неизвестный бинарный оператор: " + operator);
         };
     }
 }

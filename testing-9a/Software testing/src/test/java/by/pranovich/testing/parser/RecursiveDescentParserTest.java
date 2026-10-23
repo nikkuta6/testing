@@ -9,7 +9,6 @@ class RecursiveDescentParserTest {
 
     @ParameterizedTest(name = "Parsing of {0} should return true")
     @ValueSource(strings = {
-//            "!2<3",
             "2<>2",
             "2 <>2",
             "2!==2",

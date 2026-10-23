@@ -1,5 +1,6 @@
-package by.pranovich.testing.parser;
+package by.pranovich.testing.bytecode;
 
+/** One byte-code operation with an optional operand. */
 public record Instruction(Opcode opcode, Object operand) {
 
     public static Instruction of(Opcode opcode) {
