@@ -351,10 +351,10 @@ public final class RecursiveDescentParser {
 
         if (current == '+') {
             pos++;
-            return parseOperand();
+            return parsePower();
         } else if (current == '-') {
             pos++;
-            String type = parseOperand();
+            String type = parsePower();
             codegen.emit(Opcode.NEG);
             return type;
         } else if (current == '!' && !isNotEqualsOperator()) {
@@ -366,9 +366,26 @@ public final class RecursiveDescentParser {
             }
             parseOperand();
             codegen.emit(Opcode.NOT);
-            return "int";
+            return parsePowerTail("int");
         }
-        return parseOperand();
+        return parsePower();
+    }
+
+    /**
+     * Exponentiation is right-associative and binds tighter than unary +/-.
+     * The exponent may itself be a unary expression, so {@code 2 ^ -1} is valid.
+     */
+    private String parsePower() {
+        return parsePowerTail(parseOperand());
+    }
+
+    private String parsePowerTail(String baseType) {
+        if (!matchSymbol("^")) {
+            return baseType;
+        }
+        String exponentType = parseUnary();
+        codegen.emitBinary("^");
+        return numericResultType(baseType, exponentType);
     }
 
     private String parseOperand() {
