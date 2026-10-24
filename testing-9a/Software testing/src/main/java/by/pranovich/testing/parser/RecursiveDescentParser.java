@@ -70,6 +70,9 @@ public final class RecursiveDescentParser {
         skipWhitespace();
         if (isEndOfInput()) return;
 
+        // The enclosing statement's position is restored so that a loop's closing JMP maps back to it.
+        int enclosingPosition = codegen.sourcePosition();
+        codegen.setSourcePosition(pos);
         String word = peekWord();
         switch (word) {
             case "int", "float" -> parseDeclaration();
@@ -89,6 +92,7 @@ public final class RecursiveDescentParser {
                 }
             }
         }
+        codegen.setSourcePosition(enclosingPosition);
     }
 
     private void parseDeclaration() {
