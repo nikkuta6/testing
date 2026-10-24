@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Whole-array comparison and printing through {@code print a;} / {@code a.toString()}. */
-class ArrayComparisonAndToStringTest {
+/** Whole-array comparison and printing through {@code print(a)}; {@code a.toString()} is rejected. */
+class ArrayComparisonAndPrintTest {
 
     @ParameterizedTest(name = "[{index}] comparison: {0}")
     @MethodSource("comparisonPrograms")
@@ -53,9 +53,9 @@ class ArrayComparisonAndToStringTest {
         );
     }
 
-    @ParameterizedTest(name = "[{index}] без toString: {0}")
+    @ParameterizedTest(name = "[{index}] print: {0}")
     @MethodSource("arrayPrintPrograms")
-    void printsWholeArrayWithoutToString(String source, String expectedOutput) {
+    void printsWholeArray(String source, String expectedOutput) {
         assertEquals(expectedOutput, execute(source));
     }
 
@@ -75,51 +75,11 @@ class ArrayComparisonAndToStringTest {
 
     @ParameterizedTest(name = "skipped branch: {0}")
     @ValueSource(strings = {
-            "if 0 { int a[1]; } print(a);",
-            "if 0 { int a[1]; } print(a.toString());"
+            "if 0 { int a[1]; } print(a);"
     })
     void printingArrayDeclaredInSkippedBranchFailsAtRuntime(String source) {
         Program program = compile(source);
         assertThrows(IllegalStateException.class, () -> new VirtualMachine().run(program));
-    }
-
-    @Test
-    void printsSameOutputWithAndWithoutToString() {
-        String source = "float a = [1, 2.5, 0]; int b[2] = [3];";
-        assertEquals(execute(source + " print(a, b);"),
-                execute(source + " print(a.toString(), b.toString());"));
-    }
-
-    @ParameterizedTest(name = "[{index}] с toString: {0}")
-    @MethodSource("toStringPrograms")
-    void printsArrayWithToString(String source, String expectedOutput) {
-        assertEquals(expectedOutput, execute(source));
-    }
-
-    static Stream<Arguments> toStringPrograms() {
-        return Stream.of(
-                Arguments.of("int a = [1, 2, 3]; print(a.toString());", "[1, 2, 3]\n"),
-                Arguments.of("int a = [-1, 2]; print(a.toString());", "[-1, 2]\n"),
-                Arguments.of("float a = [1.5, 2]; print(a.toString());", "[1.5, 2.0]\n"),
-                Arguments.of("int a[3]; print(a.toString());", "[0, 0, 0]\n"),
-                Arguments.of("int a[0]; print(a.toString());", "[]\n"),
-                Arguments.of("int a[3] = [7]; print(a.toString());", "[7, 0, 0]\n"),
-                Arguments.of("int a = [5]; print(a . toString ( ) );", "[5]\n"),
-                Arguments.of("int a = [1, 2]; print(a.toString(), a[0]);", "[1, 2] 1\n"),
-                Arguments.of("int a = [3, 4]; float f = 2.5; print(1, f, a.toString());", "1 2.5 [3, 4]\n"),
-                Arguments.of(
-                        "int a[4]; int i = 0; while i < 4 { a[i] = i * i; i = i + 1; } print(a.toString());",
-                        "[0, 1, 4, 9]\n"
-                ),
-                Arguments.of(
-                        "int a = [1, 2]; if a[0] == 1 { a[1] = 5; print(a.toString()); }",
-                        "[1, 5]\n"
-                ),
-                Arguments.of(
-                        "int a = [3, 1, 2]; print(a.toString()); a[0] = a[1]; print(a.toString());",
-                        "[3, 1, 2]\n[1, 1, 2]\n"
-                )
-        );
     }
 
     @ParameterizedTest(name = "invalid source: {0}")
@@ -137,15 +97,16 @@ class ArrayComparisonAndToStringTest {
             "print(b.toString());",
             "int a = [1]; print(a.toString() + 1);",
             "int a = [1]; int s = a.toString();",
-            "int a = [1]; a.toString();"
+            "int a = [1]; a.toString();",
+            "int a = [1]; print(a.toString());"
     })
-    void rejectsInvalidComparisonAndToString(String source) {
+    void rejectsInvalidComparisonAndPrint(String source) {
         assertThrows(RuntimeException.class, () -> compile(source));
     }
 
     @Test
     void emitsArrayComparisonAndPrintInstructions() {
-        String disassembly = compile("int a = [1]; int b = [1]; print(a <> b); print(a.toString());").disassemble();
+        String disassembly = compile("int a = [1]; int b = [1]; print(a <> b); print(a);").disassemble();
         assertTrue(disassembly.contains("ARRAY_EQ [a, b]"), disassembly);
         assertTrue(disassembly.contains("NOT"), disassembly);
         assertTrue(disassembly.contains("ARRAY_PRINT [a, int]"), disassembly);

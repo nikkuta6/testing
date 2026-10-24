@@ -70,6 +70,9 @@ public final class RecursiveDescentParser {
         skipWhitespace();
         if (isEndOfInput()) return;
 
+        // The enclosing statement's position is restored so that a loop's closing JMP maps back to it.
+        int enclosingPosition = codegen.sourcePosition();
+        codegen.setSourcePosition(pos);
         String word = peekWord();
         switch (word) {
             case "int", "float" -> parseDeclaration();
@@ -89,6 +92,7 @@ public final class RecursiveDescentParser {
                 }
             }
         }
+        codegen.setSourcePosition(enclosingPosition);
     }
 
     private void parseDeclaration() {
@@ -225,7 +229,7 @@ public final class RecursiveDescentParser {
         expectSymbol("(");
         if (!peekSymbol(")")) {
             do {
-                if (!parseArrayToString()) {
+                if (!parseArrayPrint()) {
                     String type = parseExpression();
                     codegen.emit(Opcode.PRINT, type == null ? "float" : type);
                 }
@@ -239,33 +243,16 @@ public final class RecursiveDescentParser {
         expectSymbol(";");
     }
 
-    /** {@code print(a)} or {@code print(a.toString())} — strings exist only here, the VM stack holds numbers. */
-    private boolean parseArrayToString() {
+    /** {@code print(a)} prints the whole array — strings exist only here, the VM stack holds numbers. */
+    private boolean parseArrayPrint() {
         int start = pos;
         String name = readWord();
         if (arrays.containsKey(name) && (peekSymbol(",") || peekSymbol(")"))) {
             codegen.emitArrayPrint(name, arrays.get(name));
             return true;
         }
-        if (!arrays.containsKey(name) || !matchSymbol(".")) {
-            pos = start;
-            return false;
-        }
-
-        if (matchSymbol(".")) {
-            String method = readWord();
-            if (!method.equals("toString")) {
-                throw error("Неизвестный метод массива '" + method + "'");
-            }
-            expectSymbol("(");
-            expectSymbol(")");
-        } else if (!peekSymbol(";")) {
-            pos = start;
-            return false;
-        }
-
-        codegen.emitArrayPrint(name, arrays.get(name));
-        return true;
+        pos = start;
+        return false;
     }
 
     private void parseBlock() {
@@ -691,9 +678,21 @@ public final class RecursiveDescentParser {
         return c == '(' || isIdentifierStart(c);
     }
 
+    // Комментарии (// до конца строки и /* ... */) пропускаются как пробелы.
     private void skipWhitespace() {
-        while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
-            pos++;
+        while (pos < input.length()) {
+            if (Character.isWhitespace(input.charAt(pos))) {
+                pos++;
+            } else if (input.startsWith("//", pos)) {
+                int end = input.indexOf('\n', pos);
+                pos = end < 0 ? input.length() : end + 1;
+            } else if (input.startsWith("/*", pos)) {
+                int end = input.indexOf("*/", pos + 2);
+                if (end < 0) throw error("Незакрытый комментарий '/*'");
+                pos = end + 2;
+            } else {
+                return;
+            }
         }
     }
 
