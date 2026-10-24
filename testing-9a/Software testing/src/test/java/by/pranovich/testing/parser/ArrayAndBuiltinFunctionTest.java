@@ -36,6 +36,10 @@ class ArrayAndBuiltinFunctionTest {
                 Arguments.of(
                         "float x = max(1, min(2.5, 4)); print(x);",
                         "2.5\n"
+                ),
+                Arguments.of(
+                        "print(_pi()); print(_e()); print(cos(_pi()));",
+                        Math.PI + "\n" + Math.E + "\n-1.0\n"
                 )
         );
     }
@@ -112,6 +116,8 @@ class ArrayAndBuiltinFunctionTest {
             "print(unknown(1));",
             "print(sin(1, 2));",
             "print(max(1));",
+            "print(_pi(1));",
+            "int _pi = 1;",
             "int a[];",
             "int x = 1; print(x[0]);",
             "int a[2]; print(a + 1);",

@@ -53,9 +53,9 @@ class ArrayComparisonAndToStringTest {
         );
     }
 
-    @ParameterizedTest(name = "[{index}] print array: {0}")
+    @ParameterizedTest(name = "[{index}] без toString: {0}")
     @MethodSource("arrayPrintPrograms")
-    void printsWholeArray(String source, String expectedOutput) {
+    void printsWholeArrayWithoutToString(String source, String expectedOutput) {
         assertEquals(expectedOutput, execute(source));
     }
 
@@ -69,18 +69,28 @@ class ArrayComparisonAndToStringTest {
                 Arguments.of("int a = [1, 2]; a[1] = 5; print(a);", "[1, 5]\n"),
                 Arguments.of("int a = [1, 2]; print(a, a[0]);", "[1, 2] 1\n"),
                 Arguments.of("int a = [1]; float b = [2]; print(a, b);", "[1] [2.0]\n"),
-                Arguments.of("int a = [1, 2]; print(a); print(a.toString());", "[1, 2]\n[1, 2]\n"),
                 Arguments.of("int a = [1]; if a[0] == 1 { print(a); }", "[1]\n")
         );
     }
 
-    @Test
-    void printingArrayDeclaredInSkippedBranchFailsAtRuntime() {
-        Program program = compile("if 0 { int a[1]; } print(a);");
+    @ParameterizedTest(name = "skipped branch: {0}")
+    @ValueSource(strings = {
+            "if 0 { int a[1]; } print(a);",
+            "if 0 { int a[1]; } print(a.toString());"
+    })
+    void printingArrayDeclaredInSkippedBranchFailsAtRuntime(String source) {
+        Program program = compile(source);
         assertThrows(IllegalStateException.class, () -> new VirtualMachine().run(program));
     }
 
-    @ParameterizedTest(name = "[{index}] toString: {0}")
+    @Test
+    void printsSameOutputWithAndWithoutToString() {
+        String source = "float a = [1, 2.5, 0]; int b[2] = [3];";
+        assertEquals(execute(source + " print(a, b);"),
+                execute(source + " print(a.toString(), b.toString());"));
+    }
+
+    @ParameterizedTest(name = "[{index}] с toString: {0}")
     @MethodSource("toStringPrograms")
     void printsArrayWithToString(String source, String expectedOutput) {
         assertEquals(expectedOutput, execute(source));
@@ -95,6 +105,8 @@ class ArrayComparisonAndToStringTest {
                 Arguments.of("int a[0]; print(a.toString());", "[]\n"),
                 Arguments.of("int a[3] = [7]; print(a.toString());", "[7, 0, 0]\n"),
                 Arguments.of("int a = [5]; print(a . toString ( ) );", "[5]\n"),
+                Arguments.of("int a = [1, 2]; print(a.toString(), a[0]);", "[1, 2] 1\n"),
+                Arguments.of("int a = [3, 4]; float f = 2.5; print(1, f, a.toString());", "1 2.5 [3, 4]\n"),
                 Arguments.of(
                         "int a[4]; int i = 0; while i < 4 { a[i] = i * i; i = i + 1; } print(a.toString());",
                         "[0, 1, 4, 9]\n"
@@ -140,9 +152,8 @@ class ArrayComparisonAndToStringTest {
     }
 
     @Test
-    void printsSeveralArgumentsSeparatedBySpace() {
-        assertEquals("1 2.5 [3, 4]\n\n",
-                execute("int a = [3, 4]; float f = 2.5; print(1, f, a.toString()); print();"));
+    void printWithoutArgumentsPrintsEmptyLine() {
+        assertEquals("\n", execute("print();"));
     }
 
     @Test

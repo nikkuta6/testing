@@ -11,7 +11,7 @@ public final class Main {
 
     public static void main(String[] args) {
         String source = """
-                float x = 3.141592653589793 / 2, sum = 0;
+                float x = _pi() / 2, sum = 0;
                 int i = 0;
                 while (i < 10) {
                     sum = sum + (-1) ^ i * x ^ (2 * i + 1) / (2 * i + 1)!;

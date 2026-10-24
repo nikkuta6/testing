@@ -532,6 +532,11 @@ public final class RecursiveDescentParser {
                     throw error("Функция '" + name + "' принимает не менее двух аргументов");
                 }
             }
+            case "_pi", "_e" -> {
+                if (argumentCount != 0) {
+                    throw error("Функция '" + name + "' не принимает аргументов");
+                }
+            }
             default -> throw error("Неизвестная встроенная функция '" + name + "'");
         }
     }
@@ -604,7 +609,7 @@ public final class RecursiveDescentParser {
     private boolean isKeyword(String word) {
         return switch (word) {
             case "int", "float", "if", "else", "while", "print",
-                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min" -> true;
+                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e" -> true;
             default -> false;
         };
     }
