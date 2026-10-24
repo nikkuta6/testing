@@ -6,8 +6,10 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="ide-server" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="ide-server" target="25" />
+    </bytecodeTargetLevel>
   </component>
 </project>

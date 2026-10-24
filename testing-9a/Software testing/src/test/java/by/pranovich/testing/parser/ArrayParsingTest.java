@@ -132,7 +132,7 @@ class ArrayParsingTest {
                 ),
                 Arguments.of(
                         "int a[3]; a[0] = 7;",
-                        List.of("PUSH 0.0", "PUSH 7.0", "ARRAY_STORE a")
+                        List.of("PUSH 0.0", "PUSH 7.0", "ARRAY_STORE [a, int]")
                 ),
                 Arguments.of(
                         "int a[3]; print(a[0]);",

@@ -10,5 +10,6 @@ public enum Opcode {
     NEG, NOT, FACT,
     JMP, JZ,
     CALL, PRINT, PRINT_SPACE, PRINT_NEWLINE,
+    CALL_FUN, ENTER, RET, NO_RETURN, POP,
     HALT
 }
