@@ -220,29 +220,29 @@ public class RecursiveDescentParserIfWhileElseTest {
                 // Полная программа из примера
                 Arguments.of(
                         """
-                        int x =1, y;
-                        float z;
-                        if x < 5 {
-                            x = 7;
-                        } else { y =10; }
-                        while z * 5 < y {
-                            z = y * 1.5e-1;
-                        }
-                        """,
+                                int x =1, y;
+                                float z;
+                                if x < 5 {
+                                    x = 7;
+                                } else { y =10; }
+                                while z * 5 < y {
+                                    z = y * 1.5e-1;
+                                }
+                                """,
                         List.of("JZ", "JMP", "x", "y", "z")
                 ),
                 // Программа с вложенными конструкциями
                 Arguments.of(
                         """
-                        int a = 1, b = 2, c;
-                        if a < b {
-                            while a < 10 {
-                                a = a + 1;
-                            }
-                        } else {
-                            c = a + b;
-                        }
-                        """,
+                                int a = 1, b = 2, c;
+                                if a < b {
+                                    while a < 10 {
+                                        a = a + 1;
+                                    }
+                                } else {
+                                    c = a + b;
+                                }
+                                """,
                         List.of("JZ", "JMP", "a", "b", "c")
                 )
         );
