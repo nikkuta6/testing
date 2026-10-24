@@ -351,10 +351,10 @@ public final class RecursiveDescentParser {
 
         if (current == '+') {
             pos++;
-            return parseOperand();
+            return parsePower();
         } else if (current == '-') {
             pos++;
-            String type = parseOperand();
+            String type = parsePower();
             codegen.emit(Opcode.NEG);
             return type;
         } else if (current == '!' && !isNotEqualsOperator()) {
@@ -368,7 +368,18 @@ public final class RecursiveDescentParser {
             codegen.emit(Opcode.NOT);
             return "int";
         }
-        return parseOperand();
+        return parsePower();
+    }
+
+    /** Right-associative and tighter than unary minus: -2^2 = -4, 2^3^2 = 512. */
+    private String parsePower() {
+        String type = parseOperand();
+        if (matchSymbol("^")) {
+            String right = parseUnary();
+            codegen.emitBinary("^");
+            type = numericResultType(type, right);
+        }
+        return type;
     }
 
     private String parseOperand() {

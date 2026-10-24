@@ -4,7 +4,7 @@ package by.pranovich.testing.bytecode;
 public enum Opcode {
     PUSH, LOAD, STORE,
     ARRAY_NEW, ARRAY_INIT, ARRAY_LOAD, ARRAY_STORE,
-    ADD, SUB, MUL, DIV,
+    ADD, SUB, MUL, DIV, POW,
     LT, GT, LE, GE, EQ, NE,
     AND, OR,
     NEG, NOT, FACT,
