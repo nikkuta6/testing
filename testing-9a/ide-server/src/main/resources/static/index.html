@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Учебная IDE для своего языка</title>
+  
+  <style>
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #1e1e1e; /* Темный фон страницы */
+  margin: 0;             
+  padding: 0;         
+  height: 100vh;         
+  box-sizing: border-box;
+  overflow: hidden;      
+}
+
+/* Уменьшенный общий заголовок страницы */
+h3:first-of-type {
+  color: #aaaaaa;
+  font-size: 14px;
+  margin: 0 0 10px 5px;
+  font-weight: normal;
+}
+
+/* Главный контейнер */
+.main-container {
+  display: flex;
+  flex-direction: row;
+  background: #252526; /* Темный фон контейнера */
+  padding: 0;
+  border-radius: 0;
+  height: 100%; 
+  box-sizing: border-box;
+}
+
+/* Правая колонка */
+.right-column {
+  display: flex;
+  height: 100%;
+}
+.right-column.dir-vertical { flex-direction: column; }
+.right-column.dir-horizontal { flex-direction: row; }
+
+/* Стиль окон (Темная тема) */
+.window-box {
+  background-color: #1e1e1e;
+  border: 1px solid #3e3e42;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Темный заголовок окна */
+.window-header {
+  background: #2d2d30;
+  color: #cccccc;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: grab;
+  user-select: none;
+  display: flex;
+  justify-content: space-between; 
+  align-items: center;
+  height: 14px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #3e3e42;
+}
+.window-header:active { cursor: grabbing; }
+
+/* Кнопки управления внутри заголовков */
+.header-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #cccccc;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+.header-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+.header-btn.active {
+  background: #1f2937;
+}
+
+.window-content {
+  padding: 10;
+  flex-grow: 1;
+  overflow: auto;
+  color: #d4d4d4; /* Светлый текст для контента */
+}
+
+/* Стили разделителей Split.js в темной теме */
+.gutter {
+  background-color: #2d2d30;
+  background-repeat: no-repeat;
+  background-position: 50%;
+}
+.gutter.gutter-horizontal { cursor: col-resize; }
+.gutter.gutter-vertical { cursor: row-resize; }
+
+#right-column-wrapper .gutter {
+  position: relative;
+}
+
+/* Круглая кнопка на разделителе */
+.gutter-toggle-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: #3e3e42;
+  color: #ffffff;
+  border: 1px solid #555555;
+  border-radius: 50%;
+  width: 10;
+  height: 10;
+  font-size: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99; 
+  /* box-shadow: 0 1px 2px rgba(0,0,0,0.5); */
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.gutter-toggle-btn:hover {
+  background-color: #d87013; 
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.gutter-toggle-btn:active {
+  transform: translate(-50%, -50%) scale(0.95);
+}
+
+.ide-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 1px); /* Скорректировано под уменьшенный h3 */
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#workspace-top {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 10; /* Уменьшено до 10px */
+}
+
+.bottom-panel-wrapper {
+  display: flex;
+  flex-direction: column;
+  background: #252526; /* Темный фон */
+  border-radius: 0;
+  padding: 0;
+  box-sizing: border-box;
+  min-height: 10; /* Уменьшено до 10px */
+}
+
+/* Скрываем заголовок нижней панели */
+.bottom-panel-header {
+  display: none;
+}
+
+.bottom-panel-content {
+  display: flex;
+  flex-direction: row; 
+  flex: 1;
+  gap: 0;
+  padding: 0;       
+  box-sizing: border-box;
+  min-height: 0;
+}
+
+/* Стилизация h3 заголовков нижних окон под общий стиль window-header */
+.panel-sub-window h3 {
+  margin: 0;
+  background: #2d2d30;
+  color: #cccccc;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: grab;
+  user-select: none;
+  height: 16px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #3e3e42;
+  display: flex;
+  align-items: center;
+}
+
+.window-body {
+  padding: 10;
+  flex-grow: 1;
+  overflow: auto;
+  color: #d4d4d4;
+}
+
+.console-log {
+  background: #1e1e1e;
+  color: #a9ffaf;
+  font-family: monospace;
+}
+
+.gutter.gutter-vertical {
+  background-color: transparent; 
+  height: 4px !important;       
+  cursor: ns-resize;         
+  flex-shrink: 0;            
+  z-index: 100;
+}
+	
+/* Позиционирование для разделителя в нижней панели */
+#bottom-sortable-container .gutter {
+  position: relative;
+  flex-shrink: 0;
+}
+/* Фикс для правильного распределения высоты нижних окон при использовании Split.js */
+.panel-sub-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 10; /* Позволяем сжимать окна до 10px */
+  box-sizing: border-box;
+}
+	
+/* Базовый стиль строки в консоли */
+.console-line {
+  margin: 0;
+  padding: 0 0;
+  line-height: 1.0;
+  white-space: pre-wrap; /* Сохраняем пробелы и переносы */
+  word-break: break-all;
+}
+
+/* Дефолтные системные цвета, если язык не передал свои */
+.console-line.sys-info { color: #a9ffaf; }
+.console-line.sys-error { color: #ff6b6b; }
+.console-line.sys-warn { color: #f1c40f; }
+	
+  </style>
+  
+<!-- Подключаем сверхлегкий менеджер сплитов Split.js (Глобальный класс, без модулей) -->
+<script src="https://unpkg.com/split.js/dist/split.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15/Sortable.min.js"></script>
+
+<!-- Подключаем Ace Editor с правильного CDN-адреса Cloudflare -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.44.0/ace.js" integrity="sha512-+dWoJ4nMR1zflFH9wM1ZaI8waJi8iGlGuTnQrEZ7CrjVS3rpgE9b06SLIdLUjieiYodMEl8tUYtcVgXXL0/e8w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+</head>
+<body>
+
+<!-- <h3>Управление расположением прямо на кнопках окон</h3> -->
+
+<div class="ide-container">
+  
+  <div id="workspace-top" class="main-workspace-wrapper">
+    <div class="main-container">
+      
+      <!-- ЛЕВАЯ ЧАСТЬ: Редактор кода -->
+      <div class="window-box" id="left-pane">
+        <div class="window-header" style="cursor: default;">
+          <span>Редактор Ace Editor</span>
+          <span>
+            <button class="header-btn" id="header-run-btn" title="Запустить (Ctrl+Enter)">▶</button>
+            <button class="header-btn" id="header-fullscreen-btn" title="Развернуть код на весь экран">⛶</button>
+          </span>
+        </div>
+        <div id="code-editor" style="width: 100%; height: 100%;"></div>
+      </div>
+
+      <!-- ПРАВАЯ ЧАСТЬ: Теперь содержит 3 окна -->
+      <div class="right-column dir-vertical" id="right-column-wrapper">
+        
+        <!-- ОКНО БАЙТ-КОД -->
+        <div class="window-box" id="pane-settings">
+          <div class="window-header">
+            <span>Байт-код</span>
+          </div>
+          <pre class="window-content" id="bytecode-view" style="margin: 0;"></pre>
+        </div>
+
+        <!-- ОКНО ЛОКАЛЬНЫЕ ПЕРЕМЕННЫЕ -->
+        <div class="window-box" id="pane-output">
+          <div class="window-header">
+            <span>Локальные переменные</span>
+          </div>
+          <div class="window-content">В языке нет функций, все переменные глобальные.</div>
+        </div>
+
+        <!-- НОВОЕ ОКНО: СТЕК -->
+        <div class="window-box" id="pane-stack">
+          <div class="window-header">
+            <span>Стек</span>
+          </div>
+          <pre class="window-content" id="stack-view" style="margin: 0;"></pre>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- НИЖНЯЯ ПАНЕЛЬ -->
+  <div id="workspace-bottom" class="bottom-panel-wrapper">
+    <div class="bottom-panel-content" id="bottom-sortable-container">
+      
+      <!-- Окно Глобальных переменных -->
+      <div class="window-box panel-sub-window" id="win-global-vars">
+        <h3>Глобальные переменные</h3>
+        <pre class="window-body" id="globals-view" style="margin: 0;"></pre>
+      </div>
+      
+      <!-- Окно Вывода -->
+      <div class="window-box panel-sub-window" id="win-output">
+        <h3>Вывод</h3>
+        <div class="window-body console-log">
+          <p style="margin: 0 0 5px 0;">[Система]: Эмуляция успешно запущена.</p>
+          <p style="margin: 0;">Логи выполнения байт-кода и результаты эмуляции...</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+
+  <script>
+const STORAGE_KEY = 'ide_layout_settings';
+
+// 1. Загрузка настроек из памяти
+const savedSettings = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+
+let isFullscreen = savedSettings.isFullscreen || false;
+
+let rightOrientation = savedSettings.rightOrientation || 'vertical';
+let cachedMainSizes = savedSettings.cachedMainSizes || [70, 30];
+
+// Расширяем дефолтные размеры на 3 окна (33.3% каждому по умолчанию)
+let windowSizesStorage = savedSettings.windowSizesStorage || {
+  'pane-settings': 33.33,
+  'pane-output': 33.33,
+  'pane-stack': 33.34
+};
+
+// Расширяем дефолтные настройки (добавляем базовые 50/50 для низа)
+let bottomWindowSizesStorage = savedSettings.bottomWindowSizesStorage || {
+  'win-global-vars': 50,
+  'win-output': 50
+};
+
+function saveLayoutToStorage() {
+  const rightWrapper = document.getElementById('right-column-wrapper');
+  const currentRightOrderIDs = rightWrapper ? Array.from(rightWrapper.querySelectorAll('.window-box')).map(el => el.id) : [];
+
+  const bottomWrapper = document.getElementById('bottom-sortable-container');
+  const currentBottomOrderIDs = bottomWrapper ? Array.from(bottomWrapper.querySelectorAll('.panel-sub-window')).map(el => el.id) : [];
+
+  const settingsToSave = {
+    rightOrientation: rightOrientation,
+    cachedMainSizes: cachedMainSizes,
+    cachedVerticalSizes: cachedVerticalSizes,
+    windowSizesStorage: windowSizesStorage,
+    bottomWindowSizesStorage: bottomWindowSizesStorage, // <-- Запоминаем размеры нижних окон
+    rightWindowsOrder: currentRightOrderIDs,
+    bottomWindowsOrder: currentBottomOrderIDs,
+    isFullscreen: isFullscreen
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsToSave));
+}
+
+
+// Главный горизонтальный сплит (минимальный размер уменьшен до 10px)
+let mainSplit = Split(['#left-pane', '#right-column-wrapper'], {
+  sizes: cachedMainSizes,
+  minSize: 10, 
+  gutterSize: 4,
+  onDrag: function() {
+    if (isFullscreen) return;
+
+    if (!isFullscreen) cachedMainSizes = mainSplit.getSizes();
+    if (window.editorInstance) window.editorInstance.resize();
+    saveLayoutToStorage(); 
+  }
+});
+
+// Инициализация внутреннего сплита для правой части (с поддержкой n окон)
+let rightSplit = null;
+function initRightSplit() {
+  if (rightSplit) rightSplit.destroy();
+  
+  document.querySelectorAll('#right-column-wrapper .gutter').forEach(el => el.remove());
+
+  const wrapper = document.getElementById('right-column-wrapper');
+  const currentOrderIDs = Array.from(wrapper.querySelectorAll('.window-box')).map(el => el.id);
+  
+  // Нормализуем пропорции на случай, если количество окон изменилось динамически
+  const totalSaved = currentOrderIDs.reduce((sum, id) => sum + (windowSizesStorage[id] || 0), 0);
+  const orderedSizes = currentOrderIDs.map(id => {
+    if (!windowSizesStorage[id]) return 100 / currentOrderIDs.length;
+    return totalSaved > 0 ? (windowSizesStorage[id] / totalSaved) * 100 : 100 / currentOrderIDs.length;
+  });
+
+  rightSplit = Split(currentOrderIDs.map(id => '#' + id), {
+    sizes: orderedSizes,
+    direction: rightOrientation,
+    minSize: 10,    // Уменьшено до 10px
+    gutterSize: 4,  
+    onDrag: function() {
+      const currentSizes = rightSplit.getSizes();
+      currentOrderIDs.forEach((id, index) => {
+        windowSizesStorage[id] = currentSizes[index];
+      });
+      saveLayoutToStorage(); 
+    }
+  });
+
+  // Добавление кнопок смены ориентации на ВСЕ созданные разделители правой панели
+  const freshGutters = wrapper.querySelectorAll('.gutter');
+  freshGutters.forEach(gutter => {
+    const btn = document.createElement('button');
+    btn.className = 'gutter-toggle-btn';
+    btn.innerHTML = rightOrientation === 'vertical' ? '⇄' : '⇅';
+    btn.title = 'Сменить деление окон (Горизонтально/Вертикально)';
+    
+    btn.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+    btn.addEventListener('touchstart', function(e) { e.stopPropagation(); });
+    
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (rightOrientation === 'vertical') {
+        rightOrientation = 'horizontal';
+        wrapper.className = 'right-column dir-horizontal';
+      } else {
+        rightOrientation = 'vertical';
+        wrapper.className = 'right-column dir-vertical';
+      }
+      initRightSplit(); 
+      saveLayoutToStorage(); 
+    });
+
+    gutter.appendChild(btn);
+  });
+}
+
+// Восстановление структуры правой панели (учитываем новое окно 'pane-stack')
+const wrapper = document.getElementById('right-column-wrapper');
+wrapper.className = 'right-column dir-' + rightOrientation;
+
+const savedOrder = savedSettings.rightWindowsOrder || ['pane-settings', 'pane-output', 'pane-stack']; 
+savedOrder.forEach(id => {
+  const el = document.getElementById(id);
+  if (el) wrapper.appendChild(el); 
+});
+
+// Дополнительная проверка на случай, если какое-то окно выпало из сохраненного массива
+['pane-settings', 'pane-output', 'pane-stack'].forEach(id => {
+  if (!savedOrder.includes(id)) {
+    const el = document.getElementById(id);
+    if (el) wrapper.appendChild(el);
+  }
+});
+
+// Восстановление нижней панели
+const bottomContainer = document.getElementById('bottom-sortable-container');
+const savedBottomOrder = savedSettings.bottomWindowsOrder || ['win-global-vars', 'win-output']; 
+savedBottomOrder.forEach(id => {
+  const el = document.getElementById(id);
+  if (el && bottomContainer) bottomContainer.appendChild(el); 
+});
+
+initRightSplit();
+
+// SortableJS для правой панели
+const rightContainer = document.getElementById('right-column-wrapper');
+Sortable.create(rightContainer, {
+  handle: '.window-header',
+  filter: '.header-btn', 
+  preventOnFilter: true,      
+  animation: 50,
+  forceFallback: true, 
+  fallbackClass: "sortable-fallback",
+  onEnd: function () {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        initRightSplit(); 
+        saveLayoutToStorage(); 
+      }, 20); 
+    });
+  }
+});
+
+// Развертывание редактора
+document.getElementById('header-fullscreen-btn').addEventListener('click', function(e) {
+  e.stopPropagation(); 
+  isFullscreen = !isFullscreen;
+  const leftPane = document.getElementById('left-pane');
+  const rightCol = document.getElementById('right-column-wrapper');
+  
+  if (isFullscreen) {
+    this.textContent = "🗗";
+    this.classList.add('active');
+    rightCol.style.display = 'none';
+    mainSplit.collapse(1);
+	leftPane.style.width = '100%';
+  } else {
+    this.textContent = "⛶";
+    this.classList.remove('active');
+    rightCol.style.display = 'flex';
+    mainSplit.setSizes(cachedMainSizes);
+  }
+  
+  saveLayoutToStorage();  
+  setTimeout(() => { if (window.editorInstance) window.editorInstance.resize(); }, 50);
+});
+
+// Инициализация Ace Editor
+if (typeof ace !== 'undefined') {
+  const editor = ace.edit("code-editor");
+  editor.setTheme("ace/theme/monokai"); // Monokai отлично подходит под темную тему
+  editor.session.setMode("ace/mode/javascript"); // своего режима нет, подсветка JS близка по синтаксису
+  editor.session.setUseWorker(false); // JS-линтер ругался бы на наш язык
+  editor.setValue(`float x = _pi() / 2, sum = 0;
+int i = 0;
+while (i < 10) {
+    sum = sum + (-1) ^ i * x ^ (2 * i + 1) / (2 * i + 1)!;
+    i = i + 1;
+    print(i, sum, sin(x), sin(x) - sum);
+}
+print(sum);
+`, -1);
+  editor.commands.addCommand({
+    name: 'run',
+    bindKey: { win: 'Ctrl-Enter', mac: 'Cmd-Enter' },
+    exec: () => window.runProgram()
+  });
+  window.editorInstance = editor;
+}
+
+// Вертикальный разделитель (Верх / Низ, minSize уменьшен до 10px)
+let cachedVerticalSizes = savedSettings.cachedVerticalSizes || [70, 30];
+
+let verticalSplit = Split(['#workspace-top', '#workspace-bottom'], {
+    sizes: cachedVerticalSizes,         
+    direction: 'vertical',   
+    minSize: 10, // Разрешаем сжимать панели до 10px      
+    gutterSize: 8,           
+    onDrag: function() {
+        cachedVerticalSizes = verticalSplit.getSizes();
+        if (window.editorInstance && typeof window.editorInstance.resize === 'function') {
+            window.editorInstance.resize();
+        }
+        saveLayoutToStorage();
+    }
+});
+
+// Расширяем функцию сохранения высоты
+const originalSaveLayout = saveLayoutToStorage;
+saveLayoutToStorage = function() {
+  //if (isFullscreen) return;
+  originalSaveLayout();
+  
+  const currentSettings = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+  currentSettings.cachedVerticalSizes = cachedVerticalSizes;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(currentSettings));
+};
+
+// SortableJS для нижней панели
+// const bottomGrid = document.getElementById('bottom-sortable-container');
+// Sortable.create(bottomGrid, {
+    // animation: 150,
+    // handle: 'h3', 
+    // ghostClass: 'sortable-ghost',
+    // onEnd: function() {
+        // saveLayoutToStorage();
+    // }
+// });
+
+// Инициализация внутреннего горизонтального сплита для нижней панели
+let bottomSplit = null;
+function initBottomSplit() {
+  if (bottomSplit) bottomSplit.destroy();
+  
+  // Удаляем старые разделители в нижней панели перед пересборкой
+  document.querySelectorAll('#bottom-sortable-container > .gutter').forEach(el => el.remove());
+
+  const container = document.getElementById('bottom-sortable-container');
+  const currentBottomIDs = Array.from(container.querySelectorAll('.panel-sub-window')).map(el => el.id);
+  
+  // Строим массив размеров на основе текущего порядка ID окон
+  const orderedBottomSizes = currentBottomIDs.map(id => bottomWindowSizesStorage[id] || (100 / currentBottomIDs.length));
+
+  bottomSplit = Split(currentBottomIDs.map(id => '#' + id), {
+    sizes: orderedBottomSizes,
+    direction: 'horizontal',
+    minSize: 10,    // Минимальная ширина нижних окон теперь тоже 10px
+    gutterSize: 4,  
+    onDrag: function() {
+      const currentSizes = bottomSplit.getSizes();
+      currentBottomIDs.forEach((id, index) => {
+        bottomWindowSizesStorage[id] = currentSizes[index];
+      });
+      saveLayoutToStorage(); 
+    }
+  });
+}
+
+// Запускаем инициализацию нижнего сплита сразу после того, как восстановили порядок окон в DOM
+// const bottomContainer = document.getElementById('bottom-sortable-container');
+// const savedBottomOrder = savedSettings.bottomWindowsOrder || ['win-global-vars', 'win-output']; 
+// savedBottomOrder.forEach(id => {
+  // const el = document.getElementById(id);
+  // if (el && bottomContainer) bottomContainer.appendChild(el); 
+// });
+
+// // Вызываем создание сплита для низа
+initBottomSplit();
+
+// Обновленный Sortable для нижней панели (пересобирает сплит при смене порядка окон)
+Sortable.create(bottomContainer, {
+    animation: 150,
+    handle: 'h3', 
+    ghostClass: 'sortable-ghost',
+    forceFallback: true,
+    fallbackClass: "sortable-fallback",
+    onEnd: function() {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            initBottomSplit(); // Корректно пересоздаем разделитель на новом месте
+            saveLayoutToStorage();
+          }, 20);
+        });
+    }
+});
+//------------------------------------------------------------------------
+
+// Автоматическое восстановление режима "На весь экран" при загрузке
+if (savedSettings.isFullscreen) {
+  const btn = document.getElementById('header-fullscreen-btn');
+  const leftPane = document.getElementById('left-pane');
+  const rightCol = document.getElementById('right-column-wrapper');
+  
+  isFullscreen = true;
+  btn.textContent = "🗗";
+  btn.classList.add('active');
+  
+  rightCol.style.display = 'none';
+  mainSplit.collapse(1);
+  leftPane.style.width = '100%';
+  
+  setTimeout(() => { if (window.editorInstance) window.editorInstance.resize(); }, 100);
+}
+
+//----------------------------------------------------------------------------------------
+/**
+ * Функция вывода сообщений в окно "Вывод" с поддержкой кастомных стилей
+ * @param {string} text - Текст для вывода
+ * @param {Object} styles - Объект со стилями { color, size, bold, isSystem }
+ */
+window.idePrint = function(text, styles = {}) {
+  const outputBody = document.querySelector('#win-output .window-body.console-log');
+  if (!outputBody) return;
+
+  // Создаем новый элемент строки
+  const line = document.createElement('p');
+  line.className = 'console-line';
+  line.textContent = text;
+
+  // 1. Применяем кастомный цвет, если он передан (поддерживает "red", "#ff0000", "rgb(...)")
+  if (styles.color) {
+    line.style.color = styles.color;
+  }
+
+  // 2. Применяем кастомный размер текста (например, "12px", "16px")
+  if (styles.size) {
+    line.style.fontSize = styles.size;
+  }
+
+  // 3. Дополнительно: поддержка жирного текста
+  if (styles.bold) {
+    line.style.fontWeight = 'bold';
+  }
+
+  // 4. Если это системный лог IDE, накидываем дефолтный класс
+  if (styles.isSystem) {
+    line.classList.add('sys-info');
+  }
+
+  // Добавляем строку в консоль
+  outputBody.appendChild(line);
+
+  // Автоматический скролл вниз к последней записи
+  outputBody.scrollTop = outputBody.scrollHeight;
+};
+
+document.querySelector('#win-output .window-body.console-log').replaceChildren();
+
+// Запуск программы на Java-бэкенде: POST /api/run, тело — исходный текст
+window.runProgram = async function() {
+  const editor = window.editorInstance;
+  document.querySelector('#win-output .window-body.console-log').replaceChildren();
+  editor.session.clearAnnotations();
+  window.idePrint('[Система]: Запуск...', { isSystem: true });
+
+  let result;
+  try {
+    const response = await fetch('/api/run', { method: 'POST', body: editor.getValue() });
+    if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + await response.text());
+    result = await response.json();
+  } catch (e) {
+    window.idePrint('[Система]: Сервер недоступен: ' + e.message, { color: '#ff6b6b', bold: true });
+    return;
+  }
+
+  if (result.syntaxError) {
+    const err = result.syntaxError;
+    window.idePrint(`Синтаксическая ошибка, строка ${err.line}, позиция ${err.position}: ${err.message}`,
+      { color: '#ff6b6b', bold: true });
+    editor.session.setAnnotations([{ row: err.line - 1, column: err.position - 1, text: err.message, type: 'error' }]);
+    editor.gotoLine(err.line, err.position - 1, true);
+    return;
+  }
+
+  document.getElementById('bytecode-view').textContent = result.bytecode;
+  document.getElementById('stack-view').textContent = result.stack.length ? result.stack.join('\n') : '(пуст)';
+  document.getElementById('globals-view').textContent =
+    Object.entries(result.variables).map(([name, value]) => name + ' = ' + value).join('\n');
+  result.output.split('\n').forEach((line, i, lines) => {
+    if (i < lines.length - 1 || line) window.idePrint(line);
+  });
+  if (result.runtimeError) {
+    window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
+  }
+};
+
+document.getElementById('header-run-btn').addEventListener('click', e => {
+  e.stopPropagation();
+  window.runProgram();
+});
+
+// Карта соответствия внутренних токенов вашего языка и реальных CSS-цветов
+const VM_COLOR_MAP = {
+  'red': '#ff6b6b',
+  'green': '#4ade80',
+  'blue': '#4facfe',
+  'orange': '#f1c40f',
+  'white': '#ffffff',
+  'gray': '#aaaaaa'
+};
+
+/**
+//UI: 
+print("Поток запущен", color=green, size=14);
+// Пример вызова из недр вашей ВМ:
+window.executeVmPrint("Поток запущен", "green", 14);
+
+ * Системный мост: вызывается из вашей Виртуальной Машины при исполнении инструкции печати
+ * @param {string} text - Строка из стека ВМ
+ * @param {string|null} colorToken - Идентификатор цвета (например, 'red')
+ * @param {number|null} sizeParam - Числовое значение размера (например, 16)
+ */
+window.executeVmPrint = function(text, colorToken = null, sizeParam = null) {
+  // Находим реальный CSS-цвет из карты, либо оставляем дефолтный светлый текст
+  const cssColor = VM_COLOR_MAP[colorToken] || '#d4d4d4';
+  
+  // Формируем размер. Если передано просто число 16, превращаем в "16px"
+  const cssSize = sizeParam ? sizeParam + 'px' : '13px';
+  
+  // Вызываем наше окно вывода
+  window.idePrint(text, {
+    color: cssColor,
+    size: cssSize,
+    bold: (colorToken === 'red') // Автоматически делаем логи ошибок жирными
+  });
+};
+
+
+  </script>
+
+</body>
+</html>
