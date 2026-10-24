@@ -53,6 +53,33 @@ class ArrayComparisonAndToStringTest {
         );
     }
 
+    @ParameterizedTest(name = "[{index}] print array: {0}")
+    @MethodSource("arrayPrintPrograms")
+    void printsWholeArray(String source, String expectedOutput) {
+        assertEquals(expectedOutput, execute(source));
+    }
+
+    static Stream<Arguments> arrayPrintPrograms() {
+        return Stream.of(
+                Arguments.of("int a = [1, 2, 3]; print(a);", "[1, 2, 3]\n"),
+                Arguments.of("float a = [1, 2.5]; print(a);", "[1.0, 2.5]\n"),
+                Arguments.of("int a[3]; print(a);", "[0, 0, 0]\n"),
+                Arguments.of("int a[4] = [7]; print(a);", "[7, 0, 0, 0]\n"),
+                Arguments.of("int a[] = []; print(a);", "[]\n"),
+                Arguments.of("int a = [1, 2]; a[1] = 5; print(a);", "[1, 5]\n"),
+                Arguments.of("int a = [1, 2]; print(a, a[0]);", "[1, 2] 1\n"),
+                Arguments.of("int a = [1]; float b = [2]; print(a, b);", "[1] [2.0]\n"),
+                Arguments.of("int a = [1, 2]; print(a); print(a.toString());", "[1, 2]\n[1, 2]\n"),
+                Arguments.of("int a = [1]; if a[0] == 1 { print(a); }", "[1]\n")
+        );
+    }
+
+    @Test
+    void printingArrayDeclaredInSkippedBranchFailsAtRuntime() {
+        Program program = compile("if 0 { int a[1]; } print(a);");
+        assertThrows(IllegalStateException.class, () -> new VirtualMachine().run(program));
+    }
+
     @ParameterizedTest(name = "[{index}] toString: {0}")
     @MethodSource("toStringPrograms")
     void printsArrayWithToString(String source, String expectedOutput) {
