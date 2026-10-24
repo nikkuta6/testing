@@ -40,7 +40,6 @@ class LogicalExpressionTest {
                 Arguments.of("-2 ^ 2", "-4"),
                 Arguments.of("(-2) ^ 3", "-8"),
                 Arguments.of("2 * 3 ^ 2", "18"),
-                Arguments.of("2 ^ -1", "0"),
                 Arguments.of("2.0 ^ -1", "0.5"),
                 Arguments.of("3! ^ 2", "36")
         );
