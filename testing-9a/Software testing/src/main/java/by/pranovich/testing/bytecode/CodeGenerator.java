@@ -81,6 +81,7 @@ public final class CodeGenerator {
             case "-" -> Opcode.SUB;
             case "*" -> Opcode.MUL;
             case "/" -> Opcode.DIV;
+            case "^" -> Opcode.POW;
             case "<" -> Opcode.LT;
             case ">" -> Opcode.GT;
             case "<=" -> Opcode.LE;

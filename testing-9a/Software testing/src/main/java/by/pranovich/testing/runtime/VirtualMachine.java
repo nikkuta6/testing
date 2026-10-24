@@ -50,6 +50,7 @@ public final class VirtualMachine {
                 case SUB -> subtract();
                 case MUL -> stack.push(stack.pop() * stack.pop());
                 case DIV -> divide();
+                case POW -> power();
 
                 case LT -> pushBoolean(compareTopValues() < 0);
                 case GT -> pushBoolean(compareTopValues() > 0);
@@ -130,6 +131,12 @@ public final class VirtualMachine {
         double right = stack.pop();
         double left = stack.pop();
         stack.push(left / right);
+    }
+
+    private void power() {
+        double exponent = stack.pop();
+        double base = stack.pop();
+        stack.push(Math.pow(base, exponent));
     }
 
     /** Compares the two top values while preserving their source-code order. */
