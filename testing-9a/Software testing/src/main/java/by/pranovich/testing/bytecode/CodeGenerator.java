@@ -48,6 +48,14 @@ public final class CodeGenerator {
         emit(Opcode.ARRAY_STORE, name);
     }
 
+    public void emitArrayEquals(String left, String right) {
+        emit(Opcode.ARRAY_EQ, List.of(left, right));
+    }
+
+    public void emitArrayPrint(String name, String type) {
+        emit(Opcode.ARRAY_PRINT, List.of(name, type));
+    }
+
     public void emitCall(String name, int argumentCount) {
         emit(Opcode.CALL, new FunctionCall(name, argumentCount));
     }
@@ -81,6 +89,7 @@ public final class CodeGenerator {
             case "-" -> Opcode.SUB;
             case "*" -> Opcode.MUL;
             case "/" -> Opcode.DIV;
+            case "^" -> Opcode.POW;
             case "<" -> Opcode.LT;
             case ">" -> Opcode.GT;
             case "<=" -> Opcode.LE;
