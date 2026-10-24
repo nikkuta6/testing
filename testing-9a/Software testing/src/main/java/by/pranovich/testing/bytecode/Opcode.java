@@ -3,12 +3,12 @@ package by.pranovich.testing.bytecode;
 /** Operations supported by the educational stack machine. */
 public enum Opcode {
     PUSH, LOAD, STORE,
-    ARRAY_NEW, ARRAY_INIT, ARRAY_LOAD, ARRAY_STORE,
+    ARRAY_NEW, ARRAY_INIT, ARRAY_LOAD, ARRAY_STORE, ARRAY_EQ, ARRAY_PRINT,
     ADD, SUB, MUL, DIV, POW,
     LT, GT, LE, GE, EQ, NE,
     AND, OR,
     NEG, NOT, FACT,
     JMP, JZ,
-    CALL, PRINT,
+    CALL, PRINT, PRINT_SPACE, PRINT_NEWLINE,
     HALT
 }

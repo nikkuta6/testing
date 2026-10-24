@@ -12,6 +12,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 
 /** Executes the educational stack byte-code. */
 public final class VirtualMachine {
@@ -45,6 +46,8 @@ public final class VirtualMachine {
                 case ARRAY_INIT -> initializeArray((ArrayInitializer) instruction.operand());
                 case ARRAY_LOAD -> loadArrayElement((String) instruction.operand());
                 case ARRAY_STORE -> storeArrayElement((String) instruction.operand());
+                case ARRAY_EQ -> compareArrays((List<?>) instruction.operand());
+                case ARRAY_PRINT -> printArray((List<?>) instruction.operand());
 
                 case ADD -> stack.push(stack.pop() + stack.pop());
                 case SUB -> subtract();
@@ -72,7 +75,9 @@ public final class VirtualMachine {
                         programCounter = (Integer) instruction.operand() - 1;
                     }
                 }
-                case PRINT -> print(instruction.operand(), stack.pop());
+                case PRINT -> out.print(format(instruction.operand(), stack.pop()));
+                case PRINT_SPACE -> out.print(" ");
+                case PRINT_NEWLINE -> out.print('\n');
                 case HALT -> {
                     return;
                 }
@@ -119,6 +124,21 @@ public final class VirtualMachine {
         double[] array = requireArray(name);
         int index = toIndex(name, stack.pop(), array.length);
         array[index] = value;
+    }
+
+    /** Same element semantics as scalar {@code ==}: Double.compare, via Arrays.equals. */
+    private void compareArrays(List<?> names) {
+        double[] left = requireArray((String) names.get(0));
+        double[] right = requireArray((String) names.get(1));
+        pushBoolean(Arrays.equals(left, right));
+    }
+
+    private void printArray(List<?> operand) {
+        StringJoiner result = new StringJoiner(", ", "[", "]");
+        for (double value : requireArray((String) operand.get(0))) {
+            result.add(format(operand.get(1), value));
+        }
+        out.print(result);
     }
 
     private void subtract() {
@@ -224,11 +244,7 @@ public final class VirtualMachine {
         return index;
     }
 
-    private void print(Object type, double value) {
-        if ("int".equals(type)) {
-            out.println((long) value);
-        } else {
-            out.println(value);
-        }
+    private String format(Object type, double value) {
+        return "int".equals(type) ? String.valueOf((long) value) : String.valueOf(value);
     }
 }
