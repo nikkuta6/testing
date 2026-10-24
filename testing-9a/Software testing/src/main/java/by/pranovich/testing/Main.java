@@ -3,7 +3,9 @@ package by.pranovich.testing;
 import by.pranovich.testing.compiler.Compiler;
 import by.pranovich.testing.runtime.VirtualMachine;
 
-/** Minimal example of compiling and running a program written in the language. */
+/**
+ * Minimal example of compiling and running a program written in the language.
+ */
 public final class Main {
 
     private Main() {

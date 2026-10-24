@@ -329,7 +329,7 @@ public final class RecursiveDescentParser {
     }
 
     private String parseMultiplicative() {
-        String type = parsePower();
+        String type = parseUnary();
         while (true) {
             String operator;
             if (matchSymbol("*")) {
@@ -346,21 +346,6 @@ public final class RecursiveDescentParser {
         return type;
     }
 
-//    private String parsePower() {
-//        String type = parseUnary();
-//        while (true) {
-//            String operator;
-//            if (matchSymbol("^")) {
-//                operator = "^";
-//            } else {
-//                break;
-//            }
-//            String right = parseUnary();
-//            codegen.emitBinary(operator);
-//            type = numericResultType(type, right);
-//        }
-//        return type;
-//    }
 
     private String parseUnary() {
         skipWhitespace();
