@@ -11,18 +11,17 @@ public final class Main {
 
     public static void main(String[] args) {
         String source = """
-                float x = _pi() / 2, sum = 0;
+                float x = _pi() / 2 + _pi() * 1, x2 = x * x, s = sin(x), term = x, sum = 0;
                 int i = 0;
-                while (i < 10) {
-                    sum = sum + (-1) ^ i * x ^ (2 * i + 1) / (2 * i + 1)!;
+                while (i < 20) {
+                    sum = sum + term;
                     i = i + 1;
-                    print(i, sum, sin(x), sin(x) - sum);
+                    term = -term * x2 / (2 * i * (2 * i + 1));
+                    print(i, sum, s, s - sum);
                 }
                 print(11111);
                 print(sum);
-                print(sin(x));
-                
-                
+                print(s);
                 """;
 
         Compiler compiler = new Compiler(source);
