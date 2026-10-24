@@ -28,29 +28,56 @@ class ArrayComparisonAndToStringTest {
 
     static Stream<Arguments> comparisonPrograms() {
         return Stream.of(
-                Arguments.of("int a = [1, 2, 3]; int b = [1, 2, 3]; print a == b; print a <> b;", "1\n0\n"),
-                Arguments.of("int a = [1, 2, 3]; int b = [1, 5, 3]; print a == b; print a <> b;", "0\n1\n"),
-                Arguments.of("int a = [1, 2]; int b = [1, 2, 0]; print a == b; print a <> b;", "0\n1\n"),
-                Arguments.of("int a = [1, 2]; print a == a;", "1\n"),
-                Arguments.of("int a[0]; int b[] = []; print a == b;", "1\n"),
-                Arguments.of("int a[3]; int b = [0, 0, 0]; print a == b;", "1\n"),
-                Arguments.of("int a = [1, 2]; float b = [1.0, 2.0]; print a == b;", "1\n"),
+                Arguments.of("int a = [1, 2, 3]; int b = [1, 2, 3]; print(a == b); print(a <> b);", "1\n0\n"),
+                Arguments.of("int a = [1, 2, 3]; int b = [1, 5, 3]; print(a == b); print(a <> b);", "0\n1\n"),
+                Arguments.of("int a = [1, 2]; int b = [1, 2, 0]; print(a == b); print(a <> b);", "0\n1\n"),
+                Arguments.of("int a = [1, 2]; print(a == a);", "1\n"),
+                Arguments.of("int a[0]; int b[] = []; print(a == b);", "1\n"),
+                Arguments.of("int a[3]; int b = [0, 0, 0]; print(a == b);", "1\n"),
+                Arguments.of("int a = [1, 2]; float b = [1.0, 2.0]; print(a == b);", "1\n"),
                 Arguments.of(
-                        "int a = [1, 2, 3]; int b = [1, 2, 3]; b[2] = 4; print a == b; b[2] = 3; print a == b;",
+                        "int a = [1, 2, 3]; int b = [1, 2, 3]; b[2] = 4; print(a == b); b[2] = 3; print(a == b);",
                         "0\n1\n"
                 ),
                 Arguments.of(
                         "int a = [1, 2, 3]; int b[3]; int i = 0;"
-                                + " while i < 3 { b[i] = a[i]; i = i + 1; } print a == b;",
+                                + " while i < 3 { b[i] = a[i]; i = i + 1; } print(a == b);",
                         "1\n"
                 ),
-                Arguments.of("int a = [1]; int b = [1]; if a == b { print 1; } else { print 2; }", "1\n"),
-                Arguments.of("int a = [1]; int b = [2]; if a <> b { print 1; } else { print 2; }", "1\n"),
-                Arguments.of("int a = [1]; int b = [1]; print a == b && a[0] == 1; print a <> b || a[0] == 2;", "1\n0\n"),
-                Arguments.of("int a = [1]; int b = [1]; int r = a <> b; print r;", "0\n"),
-                Arguments.of("int a = [1]; int b = [1]; print (a == b) + 1; print !(a == b);", "2\n0\n"),
-                Arguments.of("int a = [1]; int b = [1]; while a == b { b[0] = 2; } print b[0];", "2\n")
+                Arguments.of("int a = [1]; int b = [1]; if a == b { print(1); } else { print(2); }", "1\n"),
+                Arguments.of("int a = [1]; int b = [2]; if a <> b { print(1); } else { print(2); }", "1\n"),
+                Arguments.of("int a = [1]; int b = [1]; print(a == b && a[0] == 1); print(a <> b || a[0] == 2);", "1\n0\n"),
+                Arguments.of("int a = [1]; int b = [1]; int r = a <> b; print(r);", "0\n"),
+                Arguments.of("int a = [1]; int b = [1]; print((a == b) + 1); print(!(a == b));", "2\n0\n"),
+                Arguments.of("int a = [1]; int b = [1]; while a == b { b[0] = 2; } print(b[0]);", "2\n")
         );
+    }
+
+    @ParameterizedTest(name = "[{index}] print array: {0}")
+    @MethodSource("arrayPrintPrograms")
+    void printsWholeArray(String source, String expectedOutput) {
+        assertEquals(expectedOutput, execute(source));
+    }
+
+    static Stream<Arguments> arrayPrintPrograms() {
+        return Stream.of(
+                Arguments.of("int a = [1, 2, 3]; print(a);", "[1, 2, 3]\n"),
+                Arguments.of("float a = [1, 2.5]; print(a);", "[1.0, 2.5]\n"),
+                Arguments.of("int a[3]; print(a);", "[0, 0, 0]\n"),
+                Arguments.of("int a[4] = [7]; print(a);", "[7, 0, 0, 0]\n"),
+                Arguments.of("int a[] = []; print(a);", "[]\n"),
+                Arguments.of("int a = [1, 2]; a[1] = 5; print(a);", "[1, 5]\n"),
+                Arguments.of("int a = [1, 2]; print(a, a[0]);", "[1, 2] 1\n"),
+                Arguments.of("int a = [1]; float b = [2]; print(a, b);", "[1] [2.0]\n"),
+                Arguments.of("int a = [1, 2]; print(a); print(a.toString());", "[1, 2]\n[1, 2]\n"),
+                Arguments.of("int a = [1]; if a[0] == 1 { print(a); }", "[1]\n")
+        );
+    }
+
+    @Test
+    void printingArrayDeclaredInSkippedBranchFailsAtRuntime() {
+        Program program = compile("if 0 { int a[1]; } print(a);");
+        assertThrows(IllegalStateException.class, () -> new VirtualMachine().run(program));
     }
 
     @ParameterizedTest(name = "[{index}] toString: {0}")
@@ -61,23 +88,23 @@ class ArrayComparisonAndToStringTest {
 
     static Stream<Arguments> toStringPrograms() {
         return Stream.of(
-                Arguments.of("int a = [1, 2, 3]; print a.toString();", "[1, 2, 3]\n"),
-                Arguments.of("int a = [-1, 2]; print a.toString();", "[-1, 2]\n"),
-                Arguments.of("float a = [1.5, 2]; print a.toString();", "[1.5, 2.0]\n"),
-                Arguments.of("int a[3]; print a.toString();", "[0, 0, 0]\n"),
-                Arguments.of("int a[0]; print a.toString();", "[]\n"),
-                Arguments.of("int a[3] = [7]; print a.toString();", "[7, 0, 0]\n"),
-                Arguments.of("int a = [5]; print a . toString ( ) ;", "[5]\n"),
+                Arguments.of("int a = [1, 2, 3]; print(a.toString());", "[1, 2, 3]\n"),
+                Arguments.of("int a = [-1, 2]; print(a.toString());", "[-1, 2]\n"),
+                Arguments.of("float a = [1.5, 2]; print(a.toString());", "[1.5, 2.0]\n"),
+                Arguments.of("int a[3]; print(a.toString());", "[0, 0, 0]\n"),
+                Arguments.of("int a[0]; print(a.toString());", "[]\n"),
+                Arguments.of("int a[3] = [7]; print(a.toString());", "[7, 0, 0]\n"),
+                Arguments.of("int a = [5]; print(a . toString ( ) );", "[5]\n"),
                 Arguments.of(
-                        "int a[4]; int i = 0; while i < 4 { a[i] = i * i; i = i + 1; } print a.toString();",
+                        "int a[4]; int i = 0; while i < 4 { a[i] = i * i; i = i + 1; } print(a.toString());",
                         "[0, 1, 4, 9]\n"
                 ),
                 Arguments.of(
-                        "int a = [1, 2]; if a[0] == 1 { a[1] = 5; print a.toString(); }",
+                        "int a = [1, 2]; if a[0] == 1 { a[1] = 5; print(a.toString()); }",
                         "[1, 5]\n"
                 ),
                 Arguments.of(
-                        "int a = [3, 1, 2]; print a.toString(); a[0] = a[1]; print a.toString();",
+                        "int a = [3, 1, 2]; print(a.toString()); a[0] = a[1]; print(a.toString());",
                         "[3, 1, 2]\n[1, 1, 2]\n"
                 )
         );
@@ -85,18 +112,18 @@ class ArrayComparisonAndToStringTest {
 
     @ParameterizedTest(name = "invalid source: {0}")
     @ValueSource(strings = {
-            "int a = [1]; print a == 1;",
-            "int a = [1]; int x = 1; print a == x;",
-            "int a = [1]; int x = 1; print x == a;",
-            "int a = [1]; print a == b;",
-            "int a = [1]; int b = [1]; print a == b[0];",
-            "int a = [1]; int b = [1]; print a < b;",
-            "int a = [1]; print a.toString;",
-            "int a = [1]; print a.toString(;",
-            "int a = [1]; print a.size();",
-            "int x = 1; print x.toString();",
-            "print b.toString();",
-            "int a = [1]; print a.toString() + 1;",
+            "int a = [1]; print(a == 1);",
+            "int a = [1]; int x = 1; print(a == x);",
+            "int a = [1]; int x = 1; print(x == a);",
+            "int a = [1]; print(a == b);",
+            "int a = [1]; int b = [1]; print(a == b[0]);",
+            "int a = [1]; int b = [1]; print(a < b);",
+            "int a = [1]; print(a.toString);",
+            "int a = [1]; print(a.toString();",
+            "int a = [1]; print(a.size());",
+            "int x = 1; print(x.toString());",
+            "print(b.toString());",
+            "int a = [1]; print(a.toString() + 1);",
             "int a = [1]; int s = a.toString();",
             "int a = [1]; a.toString();"
     })
@@ -106,15 +133,35 @@ class ArrayComparisonAndToStringTest {
 
     @Test
     void emitsArrayComparisonAndPrintInstructions() {
-        String disassembly = compile("int a = [1]; int b = [1]; print a <> b; print a.toString();").disassemble();
+        String disassembly = compile("int a = [1]; int b = [1]; print(a <> b); print(a.toString());").disassemble();
         assertTrue(disassembly.contains("ARRAY_EQ [a, b]"), disassembly);
         assertTrue(disassembly.contains("NOT"), disassembly);
         assertTrue(disassembly.contains("ARRAY_PRINT [a, int]"), disassembly);
     }
 
     @Test
+    void printsSeveralArgumentsSeparatedBySpace() {
+        assertEquals("1 2.5 [3, 4]\n\n",
+                execute("int a = [3, 4]; float f = 2.5; print(1, f, a.toString()); print();"));
+    }
+
+    @Test
+    void printsArrayDirectlyAndEndsLineWithLf() {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        try (PrintStream out = new PrintStream(buffer, true, StandardCharsets.UTF_8)) {
+            new VirtualMachine(out).run(compile("float a = [1, 2]; int b = [3]; print(a, b); print(a == b);"));
+        }
+        assertEquals("[1.0, 2.0] [3]\n0\n", buffer.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void rejectsPrintWithoutParentheses() {
+        assertThrows(RuntimeException.class, () -> compile("print 1;"));
+    }
+
+    @Test
     void comparingArrayDeclaredInSkippedBranchFailsAtRuntime() {
-        Program program = compile("int a = [1]; if 0 { int b[1]; } print a == b;");
+        Program program = compile("int a = [1]; if 0 { int b[1]; } print(a == b);");
         assertThrows(IllegalStateException.class, () -> new VirtualMachine().run(program));
     }
 

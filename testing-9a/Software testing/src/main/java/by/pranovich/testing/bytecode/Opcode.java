@@ -9,6 +9,6 @@ public enum Opcode {
     AND, OR,
     NEG, NOT, FACT,
     JMP, JZ,
-    CALL, PRINT,
+    CALL, PRINT, PRINT_SPACE, PRINT_NEWLINE,
     HALT
 }

@@ -27,7 +27,7 @@ class CompilerTest {
 
     @Test
     void capturesParserErrorWithSourceLocation() {
-        Compiler compiler = new Compiler("int x = 1;\nprint missing;");
+        Compiler compiler = new Compiler("int x = 1;\nprint(missing);");
 
         assertFalse(compiler.compile());
         assertNotNull(compiler.getSyntaxError());
