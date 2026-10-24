@@ -222,9 +222,29 @@ public final class RecursiveDescentParser {
 
     private void parsePrint() {
         readWord();
-        String type = parseExpression();
-        codegen.emit(Opcode.PRINT, type == null ? "float" : type);
+        if (!parseArrayToString()) {
+            String type = parseExpression();
+            codegen.emit(Opcode.PRINT, type == null ? "float" : type);
+        }
         expectSymbol(";");
+    }
+
+    /** {@code print a.toString();} — strings exist only here, the VM stack holds numbers. */
+    private boolean parseArrayToString() {
+        int start = pos;
+        String name = readWord();
+        if (!arrays.containsKey(name) || !matchSymbol(".")) {
+            pos = start;
+            return false;
+        }
+        String method = readWord();
+        if (!method.equals("toString")) {
+            throw error("Неизвестный метод массива '" + method + "'");
+        }
+        expectSymbol("(");
+        expectSymbol(")");
+        codegen.emitArrayPrint(name, arrays.get(name));
+        return true;
     }
 
     private void parseBlock() {
@@ -269,7 +289,7 @@ public final class RecursiveDescentParser {
     }
 
     private String parseEquality() {
-        String type = parseComparison();
+        String type = parseArrayComparison() ? "int" : parseComparison();
         while (true) {
             String operator;
             if (matchSymbol("==")) {
@@ -284,6 +304,30 @@ public final class RecursiveDescentParser {
             type = "int";
         }
         return type;
+    }
+
+    /** Whole-array {@code a == b} / {@code a <> b}: equal lengths and equal elements. */
+    private boolean parseArrayComparison() {
+        int start = pos;
+        String left = readWord();
+        String operator = !arrays.containsKey(left) ? null
+                : matchSymbol("==") ? "=="
+                : matchSymbol("<>") ? "<>"
+                : null;
+        if (operator == null) {
+            pos = start;
+            return false;
+        }
+
+        String right = readWord();
+        if (!arrays.containsKey(right) || peekSymbol("[")) {
+            throw error("Массив '" + left + "' можно сравнивать только с массивом");
+        }
+        codegen.emitArrayEquals(left, right);
+        if (operator.equals("<>")) {
+            codegen.emit(Opcode.NOT);
+        }
+        return true;
     }
 
     private String parseComparison() {
