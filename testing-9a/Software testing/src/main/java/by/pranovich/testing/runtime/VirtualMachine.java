@@ -13,7 +13,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Executes the educational stack byte-code. */
+/**
+ * Executes the educational stack byte-code.
+ */
 public final class VirtualMachine {
 
     private final Deque<Double> stack = new ArrayDeque<>();
@@ -50,6 +52,7 @@ public final class VirtualMachine {
                 case SUB -> subtract();
                 case MUL -> stack.push(stack.pop() * stack.pop());
                 case DIV -> divide();
+                case POW -> power();
 
                 case LT -> pushBoolean(compareTopValues() < 0);
                 case GT -> pushBoolean(compareTopValues() > 0);
@@ -132,7 +135,15 @@ public final class VirtualMachine {
         stack.push(left / right);
     }
 
-    /** Compares the two top values while preserving their source-code order. */
+    private void power() {
+        double right = stack.pop();
+        double left = stack.pop();
+        stack.push(Math.pow(left, right));
+    }
+
+    /**
+     * Compares the two top values while preserving their source-code order.
+     */
     private int compareTopValues() {
         double right = stack.pop();
         double left = stack.pop();

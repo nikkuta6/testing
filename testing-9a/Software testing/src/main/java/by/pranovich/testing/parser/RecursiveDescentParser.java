@@ -27,7 +27,9 @@ public final class RecursiveDescentParser {
         this.input = Objects.requireNonNull(input, "input");
     }
 
-    /** Parse a sequence of statements and append HALT. */
+    /**
+     * Parse a sequence of statements and append HALT.
+     */
     public boolean parseProgram() {
         codegen.reset();
         variables.clear();
@@ -42,7 +44,9 @@ public final class RecursiveDescentParser {
         return true;
     }
 
-    /** Parse one expression. Kept as the original expression-test contract. */
+    /**
+     * Parse one expression. Kept as the original expression-test contract.
+     */
     public boolean parse() {
         codegen.reset();
         variables.clear();
@@ -325,13 +329,29 @@ public final class RecursiveDescentParser {
     }
 
     private String parseMultiplicative() {
-        String type = parseUnary();
+        String type = parsePower();
         while (true) {
             String operator;
             if (matchSymbol("*")) {
                 operator = "*";
             } else if (matchSymbol("/")) {
                 operator = "/";
+            } else {
+                break;
+            }
+            String right = parseUnary();
+            codegen.emitBinary(operator);
+            type = numericResultType(type, right);
+        }
+        return type;
+    }
+
+    private String parsePower() {
+        String type = parseUnary();
+        while (true) {
+            String operator;
+            if (matchSymbol("^")) {
+                operator = "^";
             } else {
                 break;
             }
@@ -529,7 +549,7 @@ public final class RecursiveDescentParser {
     private boolean isKeyword(String word) {
         return switch (word) {
             case "int", "float", "if", "else", "while", "print",
-                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min" -> true;
+                 "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min" -> true;
             default -> false;
         };
     }

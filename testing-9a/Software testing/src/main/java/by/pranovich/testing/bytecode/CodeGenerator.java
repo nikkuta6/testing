@@ -3,7 +3,9 @@ package by.pranovich.testing.bytecode;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Builds stack-machine instructions while the source is being parsed. */
+/**
+ * Builds stack-machine instructions while the source is being parsed.
+ */
 public final class CodeGenerator {
 
     private final List<Instruction> instructions = new ArrayList<>();
@@ -80,6 +82,7 @@ public final class CodeGenerator {
             case "+" -> Opcode.ADD;
             case "-" -> Opcode.SUB;
             case "*" -> Opcode.MUL;
+            case "^" -> Opcode.POW;
             case "/" -> Opcode.DIV;
             case "<" -> Opcode.LT;
             case ">" -> Opcode.GT;
