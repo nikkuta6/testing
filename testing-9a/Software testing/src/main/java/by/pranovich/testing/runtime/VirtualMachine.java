@@ -75,7 +75,9 @@ public final class VirtualMachine {
                         programCounter = (Integer) instruction.operand() - 1;
                     }
                 }
-                case PRINT -> print(instruction.operand(), stack.pop());
+                case PRINT -> out.print(format(instruction.operand(), stack.pop()));
+                case PRINT_SPACE -> out.print(" ");
+                case PRINT_NEWLINE -> out.print('\n');
                 case HALT -> {
                     return;
                 }
@@ -136,7 +138,7 @@ public final class VirtualMachine {
         for (double value : requireArray((String) operand.get(0))) {
             result.add(format(operand.get(1), value));
         }
-        out.println(result);
+        out.print(result);
     }
 
     private void subtract() {
@@ -240,10 +242,6 @@ public final class VirtualMachine {
                     + name + "' длины " + length);
         }
         return index;
-    }
-
-    private void print(Object type, double value) {
-        out.println(format(type, value));
     }
 
     private String format(Object type, double value) {

@@ -218,17 +218,31 @@ public final class RecursiveDescentParser {
 
     private void parsePrint() {
         readWord();
-        if (!parseArrayToString()) {
-            String type = parseExpression();
-            codegen.emit(Opcode.PRINT, type == null ? "float" : type);
+        expectSymbol("(");
+        if (!peekSymbol(")")) {
+            do {
+                if (!parseArrayToString()) {
+                    String type = parseExpression();
+                    codegen.emit(Opcode.PRINT, type == null ? "float" : type);
+                }
+                if (peekSymbol(",")) {
+                    codegen.emit(Opcode.PRINT_SPACE);
+                }
+            } while (matchSymbol(","));
         }
+        expectSymbol(")");
+        codegen.emit(Opcode.PRINT_NEWLINE);
         expectSymbol(";");
     }
 
-    /** {@code print a.toString();} — strings exist only here, the VM stack holds numbers. */
+    /** {@code print(a)} or {@code print(a.toString())} — strings exist only here, the VM stack holds numbers. */
     private boolean parseArrayToString() {
         int start = pos;
         String name = readWord();
+        if (arrays.containsKey(name) && (peekSymbol(",") || peekSymbol(")"))) {
+            codegen.emitArrayPrint(name, arrays.get(name));
+            return true;
+        }
         if (!arrays.containsKey(name) || !matchSymbol(".")) {
             pos = start;
             return false;

@@ -16,13 +16,11 @@ public final class Main {
                 while (i < 10) {
                     sum = sum + (-1) ^ i * x ^ (2 * i + 1) / (2 * i + 1)!;
                     i = i + 1;
-                    print i;
-                    print sum;
-                    print sin(x);
-                    print sin(x) - sum;
+                    print(i, sum, sin(x), sin(x) - sum);
                 }
-                print sum;
-                print sin(x);
+                print(11111);
+                print(sum);
+                print(sin(x));
                 
                 
                 """;

@@ -26,7 +26,7 @@ class PowerOperatorTest {
     @ParameterizedTest(name = "[{index}] {0}")
     @MethodSource("expressions")
     void evaluatesPowerExpressions(String expression, String expected) {
-        assertEquals(expected + "\n", execute("print " + expression + ";"));
+        assertEquals(expected + "\n", execute("print(" + expression + ");"));
     }
 
     static Stream<Arguments> expressions() {
@@ -62,27 +62,27 @@ class PowerOperatorTest {
     static Stream<Arguments> programs() {
         return Stream.of(
                 Arguments.of(
-                        "int x = 2; x = x ^ 3; print x;",
+                        "int x = 2; x = x ^ 3; print(x);",
                         "8\n"
                 ),
                 Arguments.of(
-                        "float x = 2.0; print x ^ 3;",
+                        "float x = 2.0; print(x ^ 3);",
                         "8.0\n"
                 ),
                 Arguments.of(
-                        "float x = 2 ^ -2; print x;",
+                        "float x = 2 ^ -2; print(x);",
                         "0.25\n"
                 ),
                 Arguments.of(
-                        "int a = [1, 2, 3]; print a[2] ^ 2;",
+                        "int a = [1, 2, 3]; print(a[2] ^ 2);",
                         "9\n"
                 ),
                 Arguments.of(
-                        "if 2 ^ 3 == 8 { print 1; } else { print 0; }",
+                        "if 2 ^ 3 == 8 { print(1); } else { print(0); }",
                         "1\n"
                 ),
                 Arguments.of(
-                        "int p = 1, i = 0; while i < 3 { p = p * 2; i = i + 1; } print p ^ 2;",
+                        "int p = 1, i = 0; while i < 3 { p = p * 2; i = i + 1; } print(p ^ 2);",
                         "64\n"
                 )
         );
@@ -114,11 +114,11 @@ class PowerOperatorTest {
 
     @ParameterizedTest(name = "invalid power source: {0}")
     @ValueSource(strings = {
-            "print 2 ^;",
-            "print ^ 2;",
-            "print 2 ^ ^ 3;",
-            "print 2 ^ * 3;",
-            "print (2 ^ 3;"
+            "print(2 ^);",
+            "print(^ 2);",
+            "print(2 ^ ^ 3);",
+            "print(2 ^ * 3);",
+            "print((2 ^ 3);"
     })
     void rejectsMalformedPowerExpressions(String source) {
         assertThrows(RuntimeException.class, () -> compile(source));

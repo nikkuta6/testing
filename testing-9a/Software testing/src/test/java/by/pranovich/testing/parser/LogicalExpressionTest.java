@@ -20,7 +20,7 @@ class LogicalExpressionTest {
     @ParameterizedTest(name = "[{index}] {0}")
     @MethodSource("expressions")
     void respectsLogicalAndArithmeticPrecedence(String expression, String expected) {
-        assertEquals(expected + "\n", execute("print " + expression + ";"));
+        assertEquals(expected + "\n", execute("print(" + expression + ");"));
     }
 
     static Stream<Arguments> expressions() {
@@ -39,7 +39,7 @@ class LogicalExpressionTest {
     }
 
     @ParameterizedTest(name = "unsupported not-equal spelling: {0}")
-    @ValueSource(strings = {"print 1 != 2;", "int x = 1; if x != 2 { x = 3; }"})
+    @ValueSource(strings = {"print(1 != 2);", "int x = 1; if x != 2 { x = 3; }"})
     void rejectsExclamationEqualsBecauseLanguageUsesAngleBrackets(String source) {
         assertThrows(RuntimeException.class, () -> compile(source));
     }
