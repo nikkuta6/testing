@@ -674,9 +674,21 @@ public final class RecursiveDescentParser {
         return c == '(' || isIdentifierStart(c);
     }
 
+    // Комментарии (// до конца строки и /* ... */) пропускаются как пробелы.
     private void skipWhitespace() {
-        while (pos < input.length() && Character.isWhitespace(input.charAt(pos))) {
-            pos++;
+        while (pos < input.length()) {
+            if (Character.isWhitespace(input.charAt(pos))) {
+                pos++;
+            } else if (input.startsWith("//", pos)) {
+                int end = input.indexOf('\n', pos);
+                pos = end < 0 ? input.length() : end + 1;
+            } else if (input.startsWith("/*", pos)) {
+                int end = input.indexOf("*/", pos + 2);
+                if (end < 0) throw error("Незакрытый комментарий '/*'");
+                pos = end + 2;
+            } else {
+                return;
+            }
         }
     }
 
