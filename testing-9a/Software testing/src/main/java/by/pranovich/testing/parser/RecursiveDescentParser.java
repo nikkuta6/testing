@@ -1,151 +1,588 @@
 package by.pranovich.testing.parser;
 
+import by.pranovich.testing.bytecode.CodeGenerator;
+import by.pranovich.testing.bytecode.Opcode;
+import by.pranovich.testing.bytecode.Program;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
-public class RecursiveDescentParser {
-
-    private static final List<String> BINARY_OPERATORS = List.of(
-            "<>", "<=", ">=", "==", "&&", "||",
-            "+", "-", "*", "/", "<", ">"
-    );
+/**
+ * One-pass recursive-descent parser. It validates source code and emits
+ * stack-machine instructions directly, without building an AST.
+ */
+public final class RecursiveDescentParser {
 
     private final String input;
     private final CodeGenerator codegen = new CodeGenerator();
+    private final Map<String, String> variables = new HashMap<>();
+    private final Map<String, String> arrays = new HashMap<>();
+    private boolean declarationsRequired = false;
     private int pos = 0;
 
     public RecursiveDescentParser(String input) {
-        this.input = input;
+        this.input = Objects.requireNonNull(input, "input");
     }
 
-    /**
-     * Разбирает выражение и заодно генерирует байт-код.
-     *
-     * @return true, если весь ввод был разобран без остатка
-     */
-    public boolean parse() {
+    /** Parse a sequence of statements and append HALT. */
+    public boolean parseProgram() {
         codegen.reset();
-        parseExpression();
-        if (!isEndOfInput()) {
-            return false;
+        variables.clear();
+        arrays.clear();
+        declarationsRequired = true;
+        pos = 0;
+
+        while (!isEndOfInput()) {
+            parseStatement();
         }
         codegen.emit(Opcode.HALT);
         return true;
     }
 
-    /**
-     * Байт-код, сгенерированный последним успешным parse().
-     */
+    /** Parse one expression. Kept as the original expression-test contract. */
+    public boolean parse() {
+        codegen.reset();
+        variables.clear();
+        arrays.clear();
+        declarationsRequired = false;
+        pos = 0;
+
+        parseExpression();
+        if (!isEndOfInput()) return false;
+        codegen.emit(Opcode.HALT);
+        return true;
+    }
+
     public Program getProgram() {
         return codegen.toProgram();
     }
 
-    // expression := unary { binaryOp unary }
-    private void parseExpression() {
-        parseUnary();
+    // ==================== Statements ====================
 
-        String op;
-        while ((op = matchBinaryOperator()) != null) {
-            parseUnary();
-            codegen.emitBinary(op);   // порядок: левый, правый, операция
+    private void parseStatement() {
+        skipWhitespace();
+        if (isEndOfInput()) return;
+
+        String word = peekWord();
+        switch (word) {
+            case "int", "float" -> parseDeclaration();
+            case "if" -> parseIf();
+            case "while" -> parseWhile();
+            case "print" -> parsePrint();
+            case "else" -> throw error("'else' без предшествующего 'if'");
+            default -> {
+                char c = input.charAt(pos);
+                if (c == '{') {
+                    parseBlock();
+                } else if (isIdentifierStart(c)) {
+                    parseAssignment();
+                } else {
+                    throw error("Ожидалось начало инструкции, но найдено: '"
+                            + currentSymbol() + "'");
+                }
+            }
         }
     }
 
-    // unary := ("+" | "-") operand | "!" (name | "(" expression ")") | operand
-    private void parseUnary() {
+    private void parseDeclaration() {
+        String type = readWord();
+        do {
+            String name = expectIdentifier();
+            ensureNameIsFree(name);
+            skipWhitespace();
+
+            if (matchSymbol("[")) {
+                arrays.put(name, type);
+                boolean explicitSize = !peekSymbol("]");
+                if (explicitSize) {
+                    parseExpression();
+                }
+                expectSymbol("]");
+
+                if (peekAssignmentEquals()) {
+                    pos++;
+                    int count = parseArrayInitializer();
+                    codegen.emitArrayInit(name, count, explicitSize);
+                } else if (explicitSize) {
+                    codegen.emitArrayNew(name);
+                } else {
+                    throw error("Для массива без размера ожидался инициализатор '[...]'");
+                }
+            } else if (peekAssignmentEquals()) {
+                pos++;
+                if (peekSymbol("[")) {
+                    arrays.put(name, type);
+                    int count = parseArrayInitializer();
+                    codegen.emitArrayInit(name, count, false);
+                } else {
+                    variables.put(name, type);
+                    parseExpression();
+                    codegen.emitStore(name);
+                }
+            } else {
+                variables.put(name, type);
+                codegen.emitPush(0.0);
+                codegen.emitStore(name);
+            }
+            skipWhitespace();
+        } while (matchSymbol(","));
+        expectSymbol(";");
+    }
+
+    private int parseArrayInitializer() {
+        expectSymbol("[");
+        int count = 0;
+        if (!peekSymbol("]")) {
+            do {
+                parseExpression();
+                count++;
+            } while (matchSymbol(","));
+        }
+        expectSymbol("]");
+        return count;
+    }
+
+    private void parseAssignment() {
+        String name = expectIdentifier();
         skipWhitespace();
 
+        if (matchSymbol("[")) {
+            if (declarationsRequired && !arrays.containsKey(name)) {
+                throw error("Массив '" + name + "' не объявлен");
+            }
+            parseExpression();
+            expectSymbol("]");
+            if (!peekAssignmentEquals()) {
+                throw error("Ожидался оператор '=' после элемента массива '" + name + "'");
+            }
+            pos++;
+            parseExpression();
+            codegen.emitArrayStore(name);
+        } else {
+            if (declarationsRequired && !variables.containsKey(name)) {
+                if (arrays.containsKey(name)) {
+                    throw error("Для присваивания элементу массива '" + name + "' нужен индекс");
+                }
+                throw error("Переменная '" + name + "' не объявлена");
+            }
+            if (!peekAssignmentEquals()) {
+                throw error("Ожидался оператор '=' после '" + name + "'");
+            }
+            pos++;
+            parseExpression();
+            codegen.emitStore(name);
+        }
+        expectSymbol(";");
+    }
+
+    private void parseIf() {
+        readWord();
+        parseExpression();
+
+        int jzIdx = codegen.emitJumpPlaceholder(Opcode.JZ);
+        parseBlock();
+
+        skipWhitespace();
+        if (matchKeyword("else")) {
+            int jmpIdx = codegen.emitJumpPlaceholder(Opcode.JMP);
+            codegen.patchJump(jzIdx, codegen.size());
+
+            skipWhitespace();
+            if (!isEndOfInput() && input.charAt(pos) == '{') {
+                parseBlock();
+            } else if (peekWord().equals("if")) {
+                parseIf();
+            } else {
+                throw error("После 'else' ожидался блок '{' или 'if'");
+            }
+            codegen.patchJump(jmpIdx, codegen.size());
+        } else {
+            codegen.patchJump(jzIdx, codegen.size());
+        }
+    }
+
+    private void parseWhile() {
+        readWord();
+        int loopStart = codegen.size();
+
+        parseExpression();
+        int jzIdx = codegen.emitJumpPlaceholder(Opcode.JZ);
+        parseBlock();
+
+        codegen.emit(Opcode.JMP, loopStart);
+        codegen.patchJump(jzIdx, codegen.size());
+    }
+
+    private void parsePrint() {
+        readWord();
+        String type = parseExpression();
+        codegen.emit(Opcode.PRINT, type == null ? "float" : type);
+        expectSymbol(";");
+    }
+
+    private void parseBlock() {
+        expectSymbol("{");
+        while (true) {
+            skipWhitespace();
+            if (isEndOfInput()) {
+                throw error("Ожидалась '}'");
+            }
+            if (input.charAt(pos) == '}') {
+                pos++;
+                return;
+            }
+            parseStatement();
+        }
+    }
+
+    // ==================== Expressions ====================
+
+    private String parseExpression() {
+        return parseOr();
+    }
+
+    private String parseOr() {
+        String type = parseAnd();
+        while (matchSymbol("||")) {
+            parseAnd();
+            codegen.emitBinary("||");
+            type = "int";
+        }
+        return type;
+    }
+
+    private String parseAnd() {
+        String type = parseEquality();
+        while (matchSymbol("&&")) {
+            parseEquality();
+            codegen.emitBinary("&&");
+            type = "int";
+        }
+        return type;
+    }
+
+    private String parseEquality() {
+        String type = parseComparison();
+        while (true) {
+            String operator;
+            if (matchSymbol("==")) {
+                operator = "==";
+            } else if (matchSymbol("<>")) {
+                operator = "<>";
+            } else {
+                break;
+            }
+            parseComparison();
+            codegen.emitBinary(operator);
+            type = "int";
+        }
+        return type;
+    }
+
+    private String parseComparison() {
+        String type = parseAdditive();
+        while (true) {
+            String operator;
+            if (matchSymbol("<=")) {
+                operator = "<=";
+            } else if (matchSymbol(">=")) {
+                operator = ">=";
+            } else if (peekSymbol("<>")) {
+                break;
+            } else if (matchSymbol("<")) {
+                operator = "<";
+            } else if (matchSymbol(">")) {
+                operator = ">";
+            } else {
+                break;
+            }
+            parseAdditive();
+            codegen.emitBinary(operator);
+            type = "int";
+        }
+        return type;
+    }
+
+    private String parseAdditive() {
+        String type = parseMultiplicative();
+        while (true) {
+            String operator;
+            if (matchSymbol("+")) {
+                operator = "+";
+            } else if (matchSymbol("-")) {
+                operator = "-";
+            } else {
+                break;
+            }
+            String right = parseMultiplicative();
+            codegen.emitBinary(operator);
+            type = numericResultType(type, right);
+        }
+        return type;
+    }
+
+    private String parseMultiplicative() {
+        String type = parseUnary();
+        while (true) {
+            String operator;
+            if (matchSymbol("*")) {
+                operator = "*";
+            } else if (matchSymbol("/")) {
+                operator = "/";
+            } else {
+                break;
+            }
+            String right = parseUnary();
+            codegen.emitBinary(operator);
+            type = numericResultType(type, right);
+        }
+        return type;
+    }
+
+    private String parseUnary() {
+        skipWhitespace();
         if (isEndOfInput()) {
             throw error("Ожидался операнд, но достигнут конец ввода");
         }
-
         char current = input.charAt(pos);
 
         if (current == '+') {
             pos++;
-            parseOperand();                 // унарный плюс — no-op
+            return parseOperand();
         } else if (current == '-') {
             pos++;
-            parseOperand();
+            String type = parseOperand();
             codegen.emit(Opcode.NEG);
+            return type;
         } else if (current == '!' && !isNotEqualsOperator()) {
             pos++;
             skipWhitespace();
-
             if (isEndOfInput() || !isNameOrGroupStart()) {
-                throw error("После '!' ожидалось имя или выражение в скобках, но найдено: "
-                        + currentSymbol() + " на позиции " + pos);
+                throw error("После '!' ожидалось имя или выражение в скобках, но найдено: '"
+                        + currentSymbol() + "'");
             }
             parseOperand();
             codegen.emit(Opcode.NOT);
-        } else {
-            parseOperand();
+            return "int";
         }
+        return parseOperand();
     }
 
-    // operand := name | constant | "(" expression ")" { "!" }
-    private void parseOperand() {
+    private String parseOperand() {
         skipWhitespace();
-
         if (isEndOfInput()) {
             throw error("Ожидался операнд, но достигнут конец ввода");
         }
-
         char current = input.charAt(pos);
+        String type;
 
         if (current == '(') {
             pos++;
-            parseExpression();
-            skipWhitespace();
-            expectClosingBracket();
-        } else if (Character.isLetter(current)) {
-            codegen.emitLoad(parseName());
-        } else if (Character.isDigit(current)) {
-            codegen.emitPush(parseConstant());
+            type = parseExpression();
+            expectSymbol(")");
+        } else if (isIdentifierStart(current)) {
+            String name = readWord();
+            if (peekSymbol("(")) {
+                type = parseFunctionCall(name);
+            } else if (matchSymbol("[")) {
+                if (declarationsRequired && !arrays.containsKey(name)) {
+                    throw error("Массив '" + name + "' не объявлен");
+                }
+                type = arrays.get(name);
+                parseExpression();
+                expectSymbol("]");
+                codegen.emitArrayLoad(name);
+            } else {
+                if (declarationsRequired && !variables.containsKey(name)) {
+                    if (arrays.containsKey(name)) {
+                        throw error("Для чтения элемента массива '" + name + "' нужен индекс");
+                    }
+                    throw error("Переменная '" + name + "' не объявлена");
+                }
+                type = variables.get(name);
+                codegen.emitLoad(name);
+            }
+        } else if (isNumberStart()) {
+            int start = pos;
+            double value = parseNumber();
+            type = isFloatLiteral(input.substring(start, pos)) ? "float" : "int";
+            codegen.emitPush(value);
         } else {
-            throw error("Ожидался операнд (имя, константа или скобка), но найдено: '"
-                    + currentSymbol() + "' на позиции " + pos);
+            throw error("Ожидался операнд (имя, число или скобка), но найдено: '"
+                    + currentSymbol() + "'");
         }
 
-        // Постфиксные факториалы: "3!", "3 !", "2!!"
         while (isFactorial()) {
             pos++;
             codegen.emit(Opcode.FACT);
+            type = "int";
+        }
+        return type;
+    }
+
+    private String parseFunctionCall(String name) {
+        expectSymbol("(");
+        List<String> argumentTypes = new ArrayList<>();
+        if (!peekSymbol(")")) {
+            do {
+                argumentTypes.add(parseExpression());
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+
+        validateFunction(name, argumentTypes.size());
+        codegen.emitCall(name, argumentTypes.size());
+
+        if (name.equals("max") || name.equals("min")) {
+            return argumentTypes.stream().anyMatch("float"::equals) ? "float" : "int";
+        }
+        if (name.equals("abs")) {
+            return argumentTypes.getFirst();
+        }
+        return "float";
+    }
+
+    private void validateFunction(String name, int argumentCount) {
+        switch (name) {
+            case "sin", "cos", "cod", "tg", "ctg", "abs" -> {
+                if (argumentCount != 1) {
+                    throw error("Функция '" + name + "' принимает ровно один аргумент");
+                }
+            }
+            case "max", "min" -> {
+                if (argumentCount < 2) {
+                    throw error("Функция '" + name + "' принимает не менее двух аргументов");
+                }
+            }
+            default -> throw error("Неизвестная встроенная функция '" + name + "'");
         }
     }
 
-    private String parseName() {
+    private String numericResultType(String left, String right) {
+        return "float".equals(left) || "float".equals(right) ? "float" : "int";
+    }
+
+    private boolean isFloatLiteral(String literal) {
+        return literal.indexOf('.') >= 0
+                || literal.indexOf('e') >= 0
+                || literal.indexOf('E') >= 0;
+    }
+
+    private double parseNumber() {
         int start = pos;
-        while (!isEndOfInput() && Character.isLetter(input.charAt(pos))) {
+        while (!isEndOfInput() && Character.isDigit(input.charAt(pos))) pos++;
+
+        if (!isEndOfInput() && input.charAt(pos) == '.') {
             pos++;
+            while (!isEndOfInput() && Character.isDigit(input.charAt(pos))) pos++;
+        }
+
+        if (!isEndOfInput() && (input.charAt(pos) == 'e' || input.charAt(pos) == 'E')) {
+            pos++;
+            if (!isEndOfInput() && (input.charAt(pos) == '+' || input.charAt(pos) == '-')) pos++;
+            while (!isEndOfInput() && Character.isDigit(input.charAt(pos))) pos++;
+        }
+
+        return Double.parseDouble(input.substring(start, pos));
+    }
+
+    // ==================== Helpers ====================
+
+    private String readWord() {
+        skipWhitespace();
+        int start = pos;
+        if (pos < input.length() && isIdentifierStart(input.charAt(pos))) {
+            pos++;
+            while (pos < input.length() && isIdentifierPart(input.charAt(pos))) pos++;
         }
         return input.substring(start, pos);
     }
 
-    private long parseConstant() {
-        int start = pos;
-        while (!isEndOfInput() && Character.isDigit(input.charAt(pos))) {
-            pos++;
-        }
-        return Long.parseLong(input.substring(start, pos));
-    }
-
-    private void expectClosingBracket() {
-        if (isEndOfInput() || input.charAt(pos) != ')') {
-            throw error("Ожидалась закрывающая скобка ')', но найдено: '"
-                    + currentSymbol() + "' на позиции " + pos);
-        }
-        pos++;
-    }
-
-    private String matchBinaryOperator() {
+    private String peekWord() {
         skipWhitespace();
-        for (String operator : BINARY_OPERATORS) {
-            if (input.startsWith(operator, pos)) {
-                pos += operator.length();
-                return operator;
-            }
+        int start = pos;
+        int end = start;
+        if (end < input.length() && isIdentifierStart(input.charAt(end))) {
+            end++;
+            while (end < input.length() && isIdentifierPart(input.charAt(end))) end++;
         }
-        return null;
+        return input.substring(start, end);
+    }
+
+    private String expectIdentifier() {
+        String word = readWord();
+        if (word.isEmpty() || isKeyword(word)) {
+            throw error("Ожидался идентификатор, но найдено: '" + word + "'");
+        }
+        return word;
+    }
+
+    private void ensureNameIsFree(String name) {
+        if (variables.containsKey(name) || arrays.containsKey(name)) {
+            throw error("Имя '" + name + "' уже объявлено");
+        }
+    }
+
+    private boolean isKeyword(String word) {
+        return switch (word) {
+            case "int", "float", "if", "else", "while", "print",
+                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min" -> true;
+            default -> false;
+        };
+    }
+
+    private boolean isIdentifierStart(char c) {
+        return Character.isLetter(c) || c == '_';
+    }
+
+    private boolean isIdentifierPart(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
+    }
+
+    private boolean isNumberStart() {
+        if (isEndOfInput()) return false;
+        char c = input.charAt(pos);
+        if (Character.isDigit(c)) return true;
+        return c == '.' && pos + 1 < input.length()
+                && Character.isDigit(input.charAt(pos + 1));
+    }
+
+    private boolean peekAssignmentEquals() {
+        skipWhitespace();
+        if (pos >= input.length() || input.charAt(pos) != '=') return false;
+        return pos + 1 >= input.length() || input.charAt(pos + 1) != '=';
+    }
+
+    private boolean peekSymbol(String symbol) {
+        skipWhitespace();
+        return input.startsWith(symbol, pos);
+    }
+
+    private boolean matchSymbol(String symbol) {
+        if (peekSymbol(symbol)) {
+            pos += symbol.length();
+            return true;
+        }
+        return false;
+    }
+
+    private void expectSymbol(String symbol) {
+        if (!matchSymbol(symbol)) {
+            throw error("Ожидался символ '" + symbol + "', но найдено: '"
+                    + currentSymbol() + "'");
+        }
+    }
+
+    private boolean matchKeyword(String keyword) {
+        skipWhitespace();
+        if (!input.startsWith(keyword, pos)) return false;
+        int end = pos + keyword.length();
+        if (end < input.length() && isIdentifierPart(input.charAt(end))) return false;
+        pos = end;
+        return true;
     }
 
     private boolean isFactorial() {
@@ -158,8 +595,8 @@ public class RecursiveDescentParser {
     }
 
     private boolean isNameOrGroupStart() {
-        char current = input.charAt(pos);
-        return current == '(' || Character.isLetter(current);
+        char c = input.charAt(pos);
+        return c == '(' || isIdentifierStart(c);
     }
 
     private void skipWhitespace() {
@@ -176,7 +613,7 @@ public class RecursiveDescentParser {
         return isEndOfInput() ? "конец ввода" : input.charAt(pos) + "";
     }
 
-    private RuntimeException error(String message) {
-        return new RuntimeException(message + " (позиция " + pos + ")");
+    private ParseException error(String message) {
+        return new ParseException(message, pos);
     }
 }
