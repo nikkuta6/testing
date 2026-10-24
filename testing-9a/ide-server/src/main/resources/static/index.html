@@ -246,6 +246,17 @@ h3:first-of-type {
   word-break: break-all;
 }
 
+/* Маркеры строк в редакторе: ошибка и текущий шаг отладки */
+.marker-error { position: absolute; background: rgba(255, 80, 80, 0.28); }
+.marker-step { position: absolute; background: rgba(255, 196, 0, 0.22); border-left: 3px solid #ffc400; box-sizing: border-box; }
+.ace_gutter-cell.gutter-error { background: #b83232; color: #fff; }
+.ace_gutter-cell.gutter-step { background: #ffc400; color: #1e1e1e; }
+
+/* Текущая инструкция в окне байт-кода */
+.bc-current { background: rgba(255, 196, 0, 0.22); color: #ffe08a; }
+.bc-error { background: rgba(255, 80, 80, 0.28); }
+#debug-status { color: #ffc400; font-weight: normal; margin-right: 6px; }
+
 /* Дефолтные системные цвета, если язык не передал свои */
 .console-line.sys-info { color: #a9ffaf; }
 .console-line.sys-error { color: #ff6b6b; }
@@ -276,7 +287,17 @@ h3:first-of-type {
         <div class="window-header" style="cursor: default;">
           <span>Редактор Ace Editor</span>
           <span>
+            <span id="debug-status"></span>
             <button class="header-btn" id="header-run-btn" title="Запустить (Ctrl+Enter)">▶</button>
+            <button class="header-btn" id="debug-start-btn" title="Пошаговый режим (F5)">🐞</button>
+            <span id="debug-controls" hidden>
+              <button class="header-btn" id="debug-back-btn" title="Шаг назад (Shift+F10)">↶</button>
+              <button class="header-btn" id="debug-line-btn" title="Шаг по строке (F10)">⤼</button>
+              <button class="header-btn" id="debug-instr-btn" title="Шаг по инструкции (F11)">↓</button>
+              <button class="header-btn" id="debug-stop-btn" title="Остановить (Shift+F5)">■</button>
+            </span>
+            <button class="header-btn" id="font-dec-btn" title="Уменьшить шрифт кода">A−</button>
+            <button class="header-btn" id="font-inc-btn" title="Увеличить шрифт кода">A+</button>
             <button class="header-btn" id="header-fullscreen-btn" title="Развернуть код на весь экран">⛶</button>
           </span>
         </div>
@@ -347,6 +368,7 @@ const STORAGE_KEY = 'ide_layout_settings';
 const savedSettings = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
 
 let isFullscreen = savedSettings.isFullscreen || false;
+let editorFontSize = savedSettings.editorFontSize || 14;
 
 let rightOrientation = savedSettings.rightOrientation || 'vertical';
 let cachedMainSizes = savedSettings.cachedMainSizes || [70, 30];
@@ -379,7 +401,8 @@ function saveLayoutToStorage() {
     bottomWindowSizesStorage: bottomWindowSizesStorage, // <-- Запоминаем размеры нижних окон
     rightWindowsOrder: currentRightOrderIDs,
     bottomWindowsOrder: currentBottomOrderIDs,
-    isFullscreen: isFullscreen
+    isFullscreen: isFullscreen,
+    editorFontSize: editorFontSize
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settingsToSave));
 }
@@ -529,12 +552,44 @@ document.getElementById('header-fullscreen-btn').addEventListener('click', funct
   setTimeout(() => { if (window.editorInstance) window.editorInstance.resize(); }, 50);
 });
 
+// Подсветка синтаксиса нашего языка (ключевые слова — как в RecursiveDescentParser.isKeyword)
+function LangHighlightRules() {
+  this.$rules = {
+    start: [
+      { token: 'comment', regex: '//.*$' },
+      { token: 'comment', regex: '/\\*', next: 'comment' },
+      { token: 'storage.type', regex: '\\b(?:int|float)\\b' },
+      { token: 'keyword.control', regex: '\\b(?:if|else|while)\\b' },
+      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|_pi|_e)\\b' },
+      { token: 'constant.numeric', regex: '(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?' },
+      { token: 'variable', regex: '[A-Za-z_\\u0400-\\u04FF][\\w\\u0400-\\u04FF]*' },
+      { token: 'keyword.operator', regex: '<>|<=|>=|==|&&|\\|\\||[-+*/^!<>=]' },
+      { token: 'paren.lparen', regex: '[\\[({]' },
+      { token: 'paren.rparen', regex: '[\\])}]' }
+    ],
+    comment: [
+      { token: 'comment', regex: '\\*/', next: 'start' },
+      { defaultToken: 'comment' }
+    ]
+  };
+}
+function LangMode() {
+  this.HighlightRules = LangHighlightRules;
+  this.lineCommentStart = '//';
+  this.blockComment = { start: '/*', end: '*/' };
+}
+if (typeof ace !== 'undefined') {
+  const oop = ace.require('ace/lib/oop');
+  oop.inherits(LangHighlightRules, ace.require('ace/mode/text_highlight_rules').TextHighlightRules);
+  oop.inherits(LangMode, ace.require('ace/mode/text').Mode);
+}
+
 // Инициализация Ace Editor
 if (typeof ace !== 'undefined') {
   const editor = ace.edit("code-editor");
   editor.setTheme("ace/theme/monokai"); // Monokai отлично подходит под темную тему
-  editor.session.setMode("ace/mode/javascript"); // своего режима нет, подсветка JS близка по синтаксису
-  editor.session.setUseWorker(false); // JS-линтер ругался бы на наш язык
+  editor.session.setMode(new LangMode());
+  editor.setFontSize(editorFontSize);
   editor.setValue(`float x = _pi() / 2, sum = 0;
 int i = 0;
 while (i < 10) {
@@ -549,6 +604,14 @@ print(sum);
     bindKey: { win: 'Ctrl-Enter', mac: 'Cmd-Enter' },
     exec: () => window.runProgram()
   });
+  [['debugStart', 'F5', () => debugStart()],
+   ['debugStop', 'Shift-F5', () => debugStop()],
+   ['debugLine', 'F10', () => debugStepLine()],
+   ['debugBack', 'Shift-F10', () => debugGo(debug && debug.index - 1)],
+   ['debugInstr', 'F11', () => debugGo(debug && debug.index + 1)]
+  ].forEach(([name, key, exec]) => editor.commands.addCommand({ name, bindKey: { win: key, mac: key }, exec }));
+  // Правка кода делает шаги и маркеры ошибок устаревшими
+  editor.session.on('change', () => { if (debug) debugStop(); else clearLineMarkers(); });
   window.editorInstance = editor;
 }
 
@@ -710,21 +773,39 @@ window.idePrint = function(text, styles = {}) {
 
 document.querySelector('#win-output .window-body.console-log').replaceChildren();
 
-// Запуск программы на Java-бэкенде: POST /api/run, тело — исходный текст
-window.runProgram = async function() {
+// Цветные маркеры строк: ошибка (красный) и текущий шаг (жёлтый), в коде и на полях
+let lineMarkers = [];
+function clearLineMarkers() {
+  const session = window.editorInstance.session;
+  lineMarkers.forEach(m => { session.removeMarker(m.id); session.removeGutterDecoration(m.row, m.gutter); });
+  lineMarkers = [];
+}
+function markLine(line, kind) {
+  const editor = window.editorInstance;
+  const row = line - 1;
+  const Range = ace.require('ace/range').Range;
+  const id = editor.session.addMarker(new Range(row, 0, row, 1), 'marker-' + kind, 'fullLine');
+  editor.session.addGutterDecoration(row, 'gutter-' + kind);
+  lineMarkers.push({ id, row, gutter: 'gutter-' + kind });
+  if (row < editor.getFirstVisibleRow() || row > editor.getLastVisibleRow()) editor.scrollToLine(row, true, true, () => {});
+}
+
+// Компиляция и запуск на Java-бэкенде: POST с исходным текстом. Возвращает результат или null при ошибке.
+async function requestRun(url) {
   const editor = window.editorInstance;
   document.querySelector('#win-output .window-body.console-log').replaceChildren();
   editor.session.clearAnnotations();
+  clearLineMarkers();
   window.idePrint('[Система]: Запуск...', { isSystem: true });
 
   let result;
   try {
-    const response = await fetch('/api/run', { method: 'POST', body: editor.getValue() });
+    const response = await fetch(url, { method: 'POST', body: editor.getValue() });
     if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + await response.text());
     result = await response.json();
   } catch (e) {
     window.idePrint('[Система]: Сервер недоступен: ' + e.message, { color: '#ff6b6b', bold: true });
-    return;
+    return null;
   }
 
   if (result.syntaxError) {
@@ -733,25 +814,140 @@ window.runProgram = async function() {
       { color: '#ff6b6b', bold: true });
     editor.session.setAnnotations([{ row: err.line - 1, column: err.position - 1, text: err.message, type: 'error' }]);
     editor.gotoLine(err.line, err.position - 1, true);
-    return;
+    markLine(err.line, 'error');
+    return null;
   }
+  return result;
+}
 
-  document.getElementById('bytecode-view').textContent = result.bytecode;
-  document.getElementById('stack-view').textContent = result.stack.length ? result.stack.join('\n') : '(пуст)';
+function showMemory(variables, stack) {
+  document.getElementById('stack-view').textContent = stack.length ? stack.join('\n') : '(пуст)';
   document.getElementById('globals-view').textContent =
-    Object.entries(result.variables).map(([name, value]) => name + ' = ' + value).join('\n');
-  result.output.split('\n').forEach((line, i, lines) => {
+    Object.entries(variables).map(([name, value]) => name + ' = ' + value).join('\n');
+}
+
+function showOutput(text) {
+  document.querySelector('#win-output .window-body.console-log').replaceChildren();
+  text.split('\n').forEach((line, i, lines) => {
     if (i < lines.length - 1 || line) window.idePrint(line);
   });
+}
+
+// Байт-код построчно; инструкция pc подсвечена классом cls
+function showBytecode(text, pc = -1, cls = 'bc-current') {
+  const view = document.getElementById('bytecode-view');
+  view.replaceChildren(...text.split(/\r?\n/).filter(Boolean).map((line, i) => {
+    const div = document.createElement('div');
+    div.textContent = line;
+    if (i === pc) div.className = cls;
+    return div;
+  }));
+  const current = view.querySelector('.' + cls);
+  if (current) current.scrollIntoView({ block: 'nearest' });
+}
+
+window.runProgram = async function() {
+  if (debug) debugStop();
+  const result = await requestRun('/api/run');
+  if (!result) return;
+  showBytecode(result.bytecode);
+  showMemory(result.variables, result.stack);
+  showOutput(result.output);
   if (result.runtimeError) {
     window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
   }
 };
 
-document.getElementById('header-run-btn').addEventListener('click', e => {
+// Пошаговый режим: сервер присылает снимок VM перед каждой инструкцией, шаги листаются локально (и назад тоже).
+// debug.index === steps.length — программа завершена, показывается итоговое состояние.
+let debug = null;
+
+function setDebugUi(on) {
+  document.getElementById('debug-controls').hidden = !on;
+  document.getElementById('debug-start-btn').classList.toggle('active', on);
+  if (!on) document.getElementById('debug-status').textContent = '';
+}
+
+async function debugStart() {
+  const result = await requestRun('/api/debug');
+  if (!result) return;
+  debug = { result, index: 0 };
+  setDebugUi(true);
+  debugGo(0);
+}
+
+function debugStop() {
+  debug = null;
+  setDebugUi(false);
+  clearLineMarkers();
+  document.querySelectorAll('#bytecode-view .bc-current').forEach(el => el.classList.remove('bc-current'));
+}
+
+function debugGo(index) {
+  if (!debug) return;
+  const { result } = debug;
+  const steps = result.steps;
+  debug.index = Math.max(0, Math.min(index, steps.length));
+  clearLineMarkers();
+
+  if (debug.index < steps.length) {
+    const step = steps[debug.index];
+    const line = result.lines[step.pc];
+    if (line) markLine(line, 'step');
+    showBytecode(result.bytecode, step.pc);
+    showMemory(step.variables, step.stack);
+    showOutput(result.output.slice(0, step.out));
+    document.getElementById('debug-status').textContent =
+      `шаг ${debug.index + 1}/${steps.length}` + (line ? `, строка ${line}` : '');
+    return;
+  }
+
+  // Конец: итоговая память; при ошибке выполнения красным — строка и инструкция, на которой она случилась
+  const last = steps[steps.length - 1];
+  const failed = result.runtimeError && last;
+  if (failed && result.lines[last.pc]) markLine(result.lines[last.pc], 'error');
+  showBytecode(result.bytecode, failed ? last.pc : -1, 'bc-error');
+  showMemory(result.variables, result.stack);
+  showOutput(result.output);
+  if (result.runtimeError) {
+    window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
+  }
+  document.getElementById('debug-status').textContent = 'завершено';
+}
+
+// Шаг по строке: до первой инструкции другой строки исходника
+function debugStepLine() {
+  if (!debug) return;
+  const { steps, lines } = debug.result;
+  const lineOf = i => lines[steps[i].pc];
+  let next = debug.index + 1;
+  if (debug.index < steps.length) {
+    const current = lineOf(debug.index);
+    while (next < steps.length && (lineOf(next) === current || !lineOf(next))) next++;
+  }
+  debugGo(next);
+}
+
+// Масштаб только окна кода
+function changeFontSize(delta) {
+  editorFontSize = Math.max(8, Math.min(40, editorFontSize + delta));
+  window.editorInstance.setFontSize(editorFontSize);
+  saveLayoutToStorage();
+}
+
+[['header-run-btn', () => window.runProgram()],
+ ['debug-start-btn', () => debug ? debugStop() : debugStart()],
+ ['debug-back-btn', () => debugGo(debug.index - 1)],
+ ['debug-line-btn', () => debugStepLine()],
+ ['debug-instr-btn', () => debugGo(debug.index + 1)],
+ ['debug-stop-btn', () => debugStop()],
+ ['font-dec-btn', () => changeFontSize(-1)],
+ ['font-inc-btn', () => changeFontSize(+1)]
+].forEach(([id, action]) => document.getElementById(id).addEventListener('click', e => {
   e.stopPropagation();
-  window.runProgram();
-});
+  action();
+  window.editorInstance.focus(); // чтобы сразу работали F10/F11
+}));
 
 // Карта соответствия внутренних токенов вашего языка и реальных CSS-цветов
 const VM_COLOR_MAP = {
