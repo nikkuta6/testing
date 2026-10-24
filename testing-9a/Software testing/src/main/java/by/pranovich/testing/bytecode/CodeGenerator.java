@@ -9,17 +9,29 @@ import java.util.List;
 public final class CodeGenerator {
 
     private final List<Instruction> instructions = new ArrayList<>();
+    private final List<Integer> sourcePositions = new ArrayList<>();
+    private int sourcePosition = -1;
 
     public int size() {
         return instructions.size();
     }
 
+    /** Source offset of the statement being compiled; recorded for every emitted instruction (-1: none). */
+    public int sourcePosition() {
+        return sourcePosition;
+    }
+
+    public void setSourcePosition(int sourcePosition) {
+        this.sourcePosition = sourcePosition;
+    }
+
     public void emit(Opcode opcode) {
-        instructions.add(Instruction.of(opcode));
+        emit(opcode, null);
     }
 
     public void emit(Opcode opcode, Object operand) {
         instructions.add(Instruction.of(opcode, operand));
+        sourcePositions.add(sourcePosition);
     }
 
     public void emitPush(double value) {
@@ -68,7 +80,7 @@ public final class CodeGenerator {
 
     public int emitJumpPlaceholder(Opcode opcode) {
         int index = instructions.size();
-        instructions.add(Instruction.of(opcode, -1));
+        emit(opcode, -1);
         return index;
     }
 
@@ -79,10 +91,12 @@ public final class CodeGenerator {
 
     public void reset() {
         instructions.clear();
+        sourcePositions.clear();
+        sourcePosition = -1;
     }
 
     public Program toProgram() {
-        return new Program(instructions);
+        return new Program(instructions, sourcePositions);
     }
 
     private Opcode opcodeFor(String operator) {

@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.function.IntConsumer;
 
 /**
  * Executes the educational stack byte-code.
@@ -33,11 +34,17 @@ public final class VirtualMachine {
     }
 
     public void run(Program program) {
+        run(program, programCounter -> { });
+    }
+
+    /** Runs the program, calling {@code beforeStep} with the program counter before every instruction. */
+    public void run(Program program, IntConsumer beforeStep) {
         resetMemory();
         List<Instruction> code = program.instructions();
         int programCounter = 0;
 
         while (programCounter < code.size()) {
+            beforeStep.accept(programCounter);
             Instruction instruction = code.get(programCounter);
             switch (instruction.opcode()) {
                 case PUSH -> stack.push((Double) instruction.operand());
