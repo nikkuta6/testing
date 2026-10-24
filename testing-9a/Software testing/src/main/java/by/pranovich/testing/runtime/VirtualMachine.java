@@ -136,9 +136,9 @@ public final class VirtualMachine {
     }
 
     private void power() {
-        double right = stack.pop();
-        double left = stack.pop();
-        stack.push(Math.pow(left, right));
+        double exponent = stack.pop();
+        double base = stack.pop();
+        stack.push(Math.pow(base, exponent));
     }
 
     /**
