@@ -2,8 +2,8 @@
 
 Небольшой учебный императивный язык. Исходный текст за один проход
 компилируется в стековый байт-код (`RecursiveDescentParser` → `Program`)
-и исполняется на `VirtualMachine`. Реализация — в [`Software testing`](Software%20testing),
-веб-IDE для запуска программ — в [`ide-server`](ide-server).
+и исполняется на `VirtualMachine`. Реализация — в [`Software testing`](testing-9a/Software%20testing),
+веб-IDE для запуска программ — в [`ide-server`](testing-9a/ide-server).
 
 Содержание:
 
@@ -53,7 +53,7 @@ if (compiler.compile()) {
 Запуск в браузере — веб-IDE (нужен JDK 25):
 
 ```bash
-cd ide-server && mvn compile exec:java
+cd testing-9a/ide-server && mvn compile exec:java
 ```
 
 Затем открыть http://localhost:8080/ и нажать ▶ или Ctrl+Enter.
