@@ -200,6 +200,8 @@ public final class VirtualMachine {
             case "abs" -> Math.abs(arguments[0]);
             case "max" -> Arrays.stream(arguments).max().orElseThrow();
             case "min" -> Arrays.stream(arguments).min().orElseThrow();
+            case "_pi" -> Math.PI;
+            case "_e" -> Math.E;
             default -> throw new IllegalArgumentException(
                     "Неизвестная встроенная функция '" + function.name() + "'");
         };
