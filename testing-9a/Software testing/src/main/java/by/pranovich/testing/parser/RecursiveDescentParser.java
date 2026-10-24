@@ -222,27 +222,34 @@ public final class RecursiveDescentParser {
 
     private void parsePrint() {
         readWord();
-        if (!parseArrayToString()) {
+        if (!parseArrayPrint()) {
             String type = parseExpression();
             codegen.emit(Opcode.PRINT, type == null ? "float" : type);
         }
         expectSymbol(";");
     }
 
-    /** {@code print a.toString();} — strings exist only here, the VM stack holds numbers. */
-    private boolean parseArrayToString() {
+    /** {@code print a;} is shorthand for {@code print a.toString();}. */
+    private boolean parseArrayPrint() {
         int start = pos;
         String name = readWord();
-        if (!arrays.containsKey(name) || !matchSymbol(".")) {
+        if (!arrays.containsKey(name)) {
             pos = start;
             return false;
         }
-        String method = readWord();
-        if (!method.equals("toString")) {
-            throw error("Неизвестный метод массива '" + method + "'");
+
+        if (matchSymbol(".")) {
+            String method = readWord();
+            if (!method.equals("toString")) {
+                throw error("Неизвестный метод массива '" + method + "'");
+            }
+            expectSymbol("(");
+            expectSymbol(")");
+        } else if (!peekSymbol(";")) {
+            pos = start;
+            return false;
         }
-        expectSymbol("(");
-        expectSymbol(")");
+
         codegen.emitArrayPrint(name, arrays.get(name));
         return true;
     }

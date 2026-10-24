@@ -101,6 +101,10 @@ class ArrayAndBuiltinFunctionTest {
                         "3\n1\n1\n"
                 ),
                 Arguments.of(
+                        "int a = [1, 2, 3]; float b = [1, 2.5]; print a; print b;",
+                        "[1, 2, 3]\n[1.0, 2.5]\n"
+                ),
+                Arguments.of(
                         "int a[] = []; int b[0]; print 1;",
                         "1\n"
                 )
@@ -114,7 +118,6 @@ class ArrayAndBuiltinFunctionTest {
             "print max(1);",
             "int a[];",
             "int x = 1; print x[0];",
-            "int a[2]; print a;",
             "int a[3] = 5;",
             "int a[] = 5;",
             "int a[2][3];",

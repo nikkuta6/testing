@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Whole-array comparison ({@code a == b}, {@code a <> b}) and {@code a.toString()}. */
+/** Whole-array comparison and printing through {@code print a;} / {@code a.toString()}. */
 class ArrayComparisonAndToStringTest {
 
     @ParameterizedTest(name = "[{index}] comparison: {0}")
@@ -106,7 +106,7 @@ class ArrayComparisonAndToStringTest {
 
     @Test
     void emitsArrayComparisonAndPrintInstructions() {
-        String disassembly = compile("int a = [1]; int b = [1]; print a <> b; print a.toString();").disassemble();
+        String disassembly = compile("int a = [1]; int b = [1]; print a <> b; print a;").disassemble();
         assertTrue(disassembly.contains("ARRAY_EQ [a, b]"), disassembly);
         assertTrue(disassembly.contains("NOT"), disassembly);
         assertTrue(disassembly.contains("ARRAY_PRINT [a, int]"), disassembly);

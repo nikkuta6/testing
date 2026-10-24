@@ -149,7 +149,6 @@ class ArrayOperationsTest {
         return Stream.of(
                 Arguments.of("int a[2];\nprint b[0];", 2, "'b' не объявлен"),
                 Arguments.of("int a[2];\na = 1;", 2, "нужен индекс"),
-                Arguments.of("int a[2];\nprint a;", 2, "нужен индекс"),
                 Arguments.of("int a[2];\nint a[3];", 2, "уже объявлено"),
                 Arguments.of("int x = 1;\nint a[];", 2, "инициализатор")
         );
