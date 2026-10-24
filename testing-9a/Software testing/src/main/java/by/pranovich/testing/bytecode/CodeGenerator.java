@@ -74,6 +74,10 @@ public final class CodeGenerator {
         emit(Opcode.CALL, new FunctionCall(name, argumentCount));
     }
 
+    public void emitUserCall(UserFunctionCall function) {
+        emit(Opcode.USER_CALL, function);
+    }
+
     public void emitBinary(String operator) {
         emit(opcodeFor(operator));
     }

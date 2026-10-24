@@ -3,6 +3,7 @@ package by.pranovich.testing.parser;
 import by.pranovich.testing.bytecode.CodeGenerator;
 import by.pranovich.testing.bytecode.Opcode;
 import by.pranovich.testing.bytecode.Program;
+import by.pranovich.testing.bytecode.UserFunctionCall;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,7 +21,10 @@ public final class RecursiveDescentParser {
     private final CodeGenerator codegen = new CodeGenerator();
     private final Map<String, String> variables = new HashMap<>();
     private final Map<String, String> arrays = new HashMap<>();
+    private final Map<String, UserFunctionDefinition> functions = new HashMap<>();
     private boolean declarationsRequired = false;
+    private UserFunctionDefinition currentFunction;
+    private int blockDepth = 0;
     private int pos = 0;
 
     public RecursiveDescentParser(String input) {
@@ -34,7 +38,10 @@ public final class RecursiveDescentParser {
         codegen.reset();
         variables.clear();
         arrays.clear();
+        functions.clear();
         declarationsRequired = true;
+        currentFunction = null;
+        blockDepth = 0;
         pos = 0;
 
         while (!isEndOfInput()) {
@@ -51,7 +58,10 @@ public final class RecursiveDescentParser {
         codegen.reset();
         variables.clear();
         arrays.clear();
+        functions.clear();
         declarationsRequired = false;
+        currentFunction = null;
+        blockDepth = 0;
         pos = 0;
 
         parseExpression();
@@ -76,6 +86,8 @@ public final class RecursiveDescentParser {
         String word = peekWord();
         switch (word) {
             case "int", "float" -> parseDeclaration();
+            case "func" -> parseTypedFunctionDeclaration();
+            case "return" -> parseReturn();
             case "if" -> parseIf();
             case "while" -> parseWhile();
             case "print" -> parsePrint();
@@ -85,7 +97,13 @@ public final class RecursiveDescentParser {
                 if (c == '{') {
                     parseBlock();
                 } else if (isIdentifierStart(c)) {
-                    parseAssignment();
+                    if (looksLikeFunctionDeclaration()) {
+                        parseUserFunctionDeclaration();
+                    } else if (looksLikeFunctionCall()) {
+                        parseUserFunctionCall();
+                    } else {
+                        parseAssignment();
+                    }
                 } else {
                     throw error("Ожидалось начало инструкции, но найдено: '"
                             + currentSymbol() + "'");
@@ -186,6 +204,158 @@ public final class RecursiveDescentParser {
         expectSymbol(";");
     }
 
+    /** Declares a typed function: {@code func name(int a, float b) { return a + b; }}. */
+    private void parseTypedFunctionDeclaration() {
+        readWord();
+        String name = expectIdentifier();
+        expectSymbol("(");
+
+        List<UserParameter> parameters = new ArrayList<>();
+        if (!peekSymbol(")")) {
+            do {
+                String type = readWord();
+                if (!type.equals("int") && !type.equals("float")) {
+                    throw error("Ожидался тип параметра 'int' или 'float', но найдено: '"
+                            + type + "'");
+                }
+                addParameter(parameters, new UserParameter(type, expectIdentifier()));
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+        parseUserFunctionBody(name, parameters);
+    }
+
+    /** Legacy procedure syntax: {@code name(arg1, arg2) { ... }}. */
+    private void parseUserFunctionDeclaration() {
+        String name = expectIdentifier();
+        expectSymbol("(");
+
+        List<UserParameter> parameters = new ArrayList<>();
+        if (!peekSymbol(")")) {
+            do {
+                addParameter(parameters, new UserParameter("float", expectIdentifier()));
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+        parseUserFunctionBody(name, parameters);
+    }
+
+    private void addParameter(List<UserParameter> parameters, UserParameter parameter) {
+        if (parameters.stream().anyMatch(existing -> existing.name().equals(parameter.name()))) {
+            throw error("Параметр '" + parameter.name() + "' указан дважды");
+        }
+        parameters.add(parameter);
+    }
+
+    private void parseUserFunctionBody(String name, List<UserParameter> parameters) {
+        if (currentFunction != null || blockDepth != 0) {
+            throw error("Функции можно объявлять только на верхнем уровне программы");
+        }
+        ensureNameIsFree(name);
+
+        int skipBody = codegen.emitJumpPlaceholder(Opcode.JMP);
+        UserFunctionDefinition function = new UserFunctionDefinition(name, codegen.size(), parameters);
+        functions.put(name, function);
+
+        Map<String, String> outerVariables = new HashMap<>(variables);
+        Map<String, String> outerArrays = new HashMap<>(arrays);
+        variables.clear();
+        arrays.clear();
+        for (UserParameter parameter : parameters) {
+            variables.put(parameter.name(), parameter.type());
+        }
+
+        currentFunction = function;
+        parseBlock();
+        if (function.returnType == null) {
+            codegen.emit(Opcode.RETURN, false);
+        } else {
+            // The VM reports a missing value if an executed path reaches the closing brace.
+            codegen.emit(Opcode.RETURN, true);
+        }
+        currentFunction = null;
+
+        variables.clear();
+        variables.putAll(outerVariables);
+        arrays.clear();
+        arrays.putAll(outerArrays);
+        codegen.patchJump(skipBody, codegen.size());
+    }
+
+    private void parseReturn() {
+        readWord();
+        if (currentFunction == null) {
+            throw error("'return' допустим только внутри функции");
+        }
+        String type = parseExpression();
+        currentFunction.returnType = currentFunction.returnType == null
+                ? type
+                : numericResultType(currentFunction.returnType, type);
+        codegen.emit(Opcode.RETURN, true);
+        expectSymbol(";");
+    }
+
+    /** Calls a previously declared function and discards its result when used as a statement. */
+    private void parseUserFunctionCall() {
+        String name = expectIdentifier();
+        UserFunctionDefinition function = functions.get(name);
+        if (function == null) {
+            throw error("Функция '" + name + "' не объявлена");
+        }
+        parseUserFunctionArguments(function);
+        codegen.emitUserCall(function.callOperand());
+        if (function.returnType != null) {
+            codegen.emit(Opcode.POP);
+        }
+        expectSymbol(";");
+    }
+
+    private List<String> parseUserFunctionArguments(UserFunctionDefinition function) {
+        expectSymbol("(");
+        List<String> argumentTypes = new ArrayList<>();
+        if (!peekSymbol(")")) {
+            do {
+                argumentTypes.add(parseExpression());
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+        if (argumentTypes.size() != function.parameters.size()) {
+            throw error("Функция '" + function.name + "' принимает " + function.parameters.size()
+                    + " аргумент(а), передано " + argumentTypes.size());
+        }
+        return argumentTypes;
+    }
+
+    private boolean looksLikeFunctionDeclaration() {
+        int start = pos;
+        readWord();
+        if (!matchSymbol("(")) {
+            pos = start;
+            return false;
+        }
+
+        boolean validParameters = true;
+        if (!peekSymbol(")")) {
+            do {
+                if (readWord().isEmpty()) {
+                    validParameters = false;
+                    break;
+                }
+            } while (matchSymbol(","));
+        }
+        boolean result = validParameters && matchSymbol(")") && peekSymbol("{");
+        pos = start;
+        return result;
+    }
+
+    private boolean looksLikeFunctionCall() {
+        int start = pos;
+        readWord();
+        boolean result = peekSymbol("(");
+        pos = start;
+        return result;
+    }
+
     private void parseIf() {
         readWord();
         parseExpression();
@@ -257,6 +427,7 @@ public final class RecursiveDescentParser {
 
     private void parseBlock() {
         expectSymbol("{");
+        blockDepth++;
         while (true) {
             skipWhitespace();
             if (isEndOfInput()) {
@@ -264,6 +435,7 @@ public final class RecursiveDescentParser {
             }
             if (input.charAt(pos) == '}') {
                 pos++;
+                blockDepth--;
                 return;
             }
             parseStatement();
@@ -498,6 +670,16 @@ public final class RecursiveDescentParser {
     }
 
     private String parseFunctionCall(String name) {
+        UserFunctionDefinition userFunction = functions.get(name);
+        if (userFunction != null) {
+            parseUserFunctionArguments(userFunction);
+            if (userFunction.returnType == null) {
+                throw error("Функция '" + name + "' не возвращает значение");
+            }
+            codegen.emitUserCall(userFunction.callOperand());
+            return userFunction.returnType;
+        }
+
         expectSymbol("(");
         List<String> argumentTypes = new ArrayList<>();
         if (!peekSymbol(")")) {
@@ -600,14 +782,14 @@ public final class RecursiveDescentParser {
     }
 
     private void ensureNameIsFree(String name) {
-        if (variables.containsKey(name) || arrays.containsKey(name)) {
+        if (variables.containsKey(name) || arrays.containsKey(name) || functions.containsKey(name)) {
             throw error("Имя '" + name + "' уже объявлено");
         }
     }
 
     private boolean isKeyword(String word) {
         return switch (word) {
-            case "int", "float", "if", "else", "while", "print",
+            case "int", "float", "func", "return", "if", "else", "while", "print",
                     "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e" -> true;
             default -> false;
         };
@@ -706,5 +888,26 @@ public final class RecursiveDescentParser {
 
     private ParseException error(String message) {
         return new ParseException(message, pos);
+    }
+
+    private record UserParameter(String type, String name) {
+    }
+
+    private static final class UserFunctionDefinition {
+        private final String name;
+        private final int entryPoint;
+        private final List<UserParameter> parameters;
+        private String returnType;
+
+        private UserFunctionDefinition(String name, int entryPoint, List<UserParameter> parameters) {
+            this.name = name;
+            this.entryPoint = entryPoint;
+            this.parameters = List.copyOf(parameters);
+        }
+
+        private UserFunctionCall callOperand() {
+            return new UserFunctionCall(name, entryPoint,
+                    parameters.stream().map(UserParameter::name).toList());
+        }
     }
 }

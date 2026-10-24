@@ -7,8 +7,8 @@ public enum Opcode {
     ADD, SUB, MUL, DIV, POW,
     LT, GT, LE, GE, EQ, NE,
     AND, OR,
-    NEG, NOT, FACT,
+    NEG, NOT, FACT, POP,
     JMP, JZ,
-    CALL, PRINT, PRINT_SPACE, PRINT_NEWLINE,
+    CALL, USER_CALL, RETURN, PRINT, PRINT_SPACE, PRINT_NEWLINE,
     HALT
 }

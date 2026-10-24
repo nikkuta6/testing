@@ -4,6 +4,7 @@ import by.pranovich.testing.bytecode.ArrayInitializer;
 import by.pranovich.testing.bytecode.FunctionCall;
 import by.pranovich.testing.bytecode.Instruction;
 import by.pranovich.testing.bytecode.Program;
+import by.pranovich.testing.bytecode.UserFunctionCall;
 
 import java.io.PrintStream;
 import java.util.ArrayDeque;
@@ -21,6 +22,7 @@ import java.util.function.IntConsumer;
 public final class VirtualMachine {
 
     private final Deque<Double> stack = new ArrayDeque<>();
+    private final Deque<CallFrame> callFrames = new ArrayDeque<>();
     private final Map<String, Double> variables = new HashMap<>();
     private final Map<String, double[]> arrays = new HashMap<>();
     private final PrintStream out;
@@ -76,7 +78,12 @@ public final class VirtualMachine {
                 case NEG -> stack.push(-stack.pop());
                 case NOT -> pushBoolean(stack.pop() == 0.0);
                 case FACT -> stack.push(factorial(stack.pop()));
+                case POP -> stack.pop();
                 case CALL -> call((FunctionCall) instruction.operand());
+                case USER_CALL -> programCounter = callUserFunction(
+                        (UserFunctionCall) instruction.operand(), programCounter);
+                case RETURN -> programCounter = returnFromUserFunction(
+                        Boolean.TRUE.equals(instruction.operand()));
 
                 case JMP -> programCounter = (Integer) instruction.operand() - 1;
                 case JZ -> {
@@ -97,6 +104,7 @@ public final class VirtualMachine {
 
     private void resetMemory() {
         stack.clear();
+        callFrames.clear();
         variables.clear();
         arrays.clear();
     }
@@ -219,6 +227,48 @@ public final class VirtualMachine {
         stack.push(result);
     }
 
+    private int callUserFunction(UserFunctionCall function, int returnAddress) {
+        double[] arguments = popArguments(function.parameters().size());
+        callFrames.push(new CallFrame(returnAddress, new HashMap<>(variables),
+                new HashMap<>(arrays), stack.size()));
+
+        variables.clear();
+        arrays.clear();
+        for (int index = 0; index < function.parameters().size(); index++) {
+            variables.put(function.parameters().get(index), arguments[index]);
+        }
+        return function.entryPoint() - 1;
+    }
+
+    private int returnFromUserFunction(boolean returnsValue) {
+        if (callFrames.isEmpty()) {
+            throw new IllegalStateException("RETURN вне пользовательской функции");
+        }
+        CallFrame frame = callFrames.pop();
+        Double result = null;
+        if (returnsValue) {
+            if (stack.size() <= frame.stackDepth()) {
+                throw new IllegalStateException("Функция завершилась без возвращаемого значения");
+            }
+            result = stack.pop();
+        }
+        if (stack.size() < frame.stackDepth()) {
+            throw new IllegalStateException("Функция повредила стек вызывающей программы");
+        }
+        while (stack.size() > frame.stackDepth()) {
+            stack.pop();
+        }
+
+        variables.clear();
+        variables.putAll(frame.variables());
+        arrays.clear();
+        arrays.putAll(frame.arrays());
+        if (result != null) {
+            stack.push(result);
+        }
+        return frame.returnAddress();
+    }
+
     private double[] popArguments(int count) {
         double[] arguments = new double[count];
         for (int index = count - 1; index >= 0; index--) {
@@ -259,5 +309,9 @@ public final class VirtualMachine {
 
     private String format(Object type, double value) {
         return "int".equals(type) ? String.valueOf((long) value) : String.valueOf(value);
+    }
+
+    private record CallFrame(int returnAddress, Map<String, Double> variables,
+                             Map<String, double[]> arrays, int stackDepth) {
     }
 }
