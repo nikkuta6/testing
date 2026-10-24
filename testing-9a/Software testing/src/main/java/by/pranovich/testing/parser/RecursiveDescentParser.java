@@ -27,7 +27,9 @@ public final class RecursiveDescentParser {
         this.input = Objects.requireNonNull(input, "input");
     }
 
-    /** Parse a sequence of statements and append HALT. */
+    /**
+     * Parse a sequence of statements and append HALT.
+     */
     public boolean parseProgram() {
         codegen.reset();
         variables.clear();
@@ -42,7 +44,9 @@ public final class RecursiveDescentParser {
         return true;
     }
 
-    /** Parse one expression. Kept as the original expression-test contract. */
+    /**
+     * Parse one expression. Kept as the original expression-test contract.
+     */
     public boolean parse() {
         codegen.reset();
         variables.clear();
@@ -218,27 +222,48 @@ public final class RecursiveDescentParser {
 
     private void parsePrint() {
         readWord();
-        if (!parseArrayToString()) {
-            String type = parseExpression();
-            codegen.emit(Opcode.PRINT, type == null ? "float" : type);
+        expectSymbol("(");
+        if (!peekSymbol(")")) {
+            do {
+                if (!parseArrayToString()) {
+                    String type = parseExpression();
+                    codegen.emit(Opcode.PRINT, type == null ? "float" : type);
+                }
+                if (peekSymbol(",")) {
+                    codegen.emit(Opcode.PRINT_SPACE);
+                }
+            } while (matchSymbol(","));
         }
+        expectSymbol(")");
+        codegen.emit(Opcode.PRINT_NEWLINE);
         expectSymbol(";");
     }
 
-    /** {@code print a.toString();} — strings exist only here, the VM stack holds numbers. */
+    /** {@code print(a)} or {@code print(a.toString())} — strings exist only here, the VM stack holds numbers. */
     private boolean parseArrayToString() {
         int start = pos;
         String name = readWord();
+        if (arrays.containsKey(name) && (peekSymbol(",") || peekSymbol(")"))) {
+            codegen.emitArrayPrint(name, arrays.get(name));
+            return true;
+        }
         if (!arrays.containsKey(name) || !matchSymbol(".")) {
             pos = start;
             return false;
         }
-        String method = readWord();
-        if (!method.equals("toString")) {
-            throw error("Неизвестный метод массива '" + method + "'");
+
+        if (matchSymbol(".")) {
+            String method = readWord();
+            if (!method.equals("toString")) {
+                throw error("Неизвестный метод массива '" + method + "'");
+            }
+            expectSymbol("(");
+            expectSymbol(")");
+        } else if (!peekSymbol(";")) {
+            pos = start;
+            return false;
         }
-        expectSymbol("(");
-        expectSymbol(")");
+
         codegen.emitArrayPrint(name, arrays.get(name));
         return true;
     }
@@ -386,6 +411,7 @@ public final class RecursiveDescentParser {
         return type;
     }
 
+
     private String parseUnary() {
         skipWhitespace();
         if (isEndOfInput()) {
@@ -518,6 +544,11 @@ public final class RecursiveDescentParser {
                     throw error("Функция '" + name + "' принимает не менее двух аргументов");
                 }
             }
+            case "_pi", "_e" -> {
+                if (argumentCount != 0) {
+                    throw error("Функция '" + name + "' не принимает аргументов");
+                }
+            }
             default -> throw error("Неизвестная встроенная функция '" + name + "'");
         }
     }
@@ -590,7 +621,7 @@ public final class RecursiveDescentParser {
     private boolean isKeyword(String word) {
         return switch (word) {
             case "int", "float", "if", "else", "while", "print",
-                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min" -> true;
+                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e" -> true;
             default -> false;
         };
     }

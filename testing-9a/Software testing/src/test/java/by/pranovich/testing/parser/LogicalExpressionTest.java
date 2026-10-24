@@ -20,7 +20,7 @@ class LogicalExpressionTest {
     @ParameterizedTest(name = "[{index}] {0}")
     @MethodSource("expressions")
     void respectsLogicalAndArithmeticPrecedence(String expression, String expected) {
-        assertEquals(expected + "\n", execute("print " + expression + ";"));
+        assertEquals(expected + "\n", execute("print(" + expression + ");"));
     }
 
     static Stream<Arguments> expressions() {
@@ -34,12 +34,20 @@ class LogicalExpressionTest {
                 Arguments.of("1 + 2 * 3 == 7", "1"),
                 Arguments.of("10 - 2 * 3 > 3 && 4 <> 5", "1"),
                 Arguments.of("!(1 <> 1)", "1"),
-                Arguments.of("max(1, 2) == 2 && abs(-3) <> 2", "1")
+                Arguments.of("max(1, 2) == 2 && abs(-3) <> 2", "1"),
+                Arguments.of("2 ^ 10", "1024"),
+                Arguments.of("2 ^ 3 ^ 2", "512"),
+                Arguments.of("-2 ^ 2", "-4"),
+                Arguments.of("(-2) ^ 3", "-8"),
+                Arguments.of("2 * 3 ^ 2", "18"),
+                Arguments.of("2 ^ -1", "0"),
+                Arguments.of("2.0 ^ -1", "0.5"),
+                Arguments.of("3! ^ 2", "36")
         );
     }
 
     @ParameterizedTest(name = "unsupported not-equal spelling: {0}")
-    @ValueSource(strings = {"print 1 != 2;", "int x = 1; if x != 2 { x = 3; }"})
+    @ValueSource(strings = {"print(1 != 2);", "int x = 1; if x != 2 { x = 3; }"})
     void rejectsExclamationEqualsBecauseLanguageUsesAngleBrackets(String source) {
         assertThrows(RuntimeException.class, () -> compile(source));
     }

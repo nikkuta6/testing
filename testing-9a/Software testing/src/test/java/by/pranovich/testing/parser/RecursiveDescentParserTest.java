@@ -2,13 +2,23 @@ package by.pranovich.testing.parser;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import by.pranovich.testing.runtime.VirtualMachine;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 
 class RecursiveDescentParserTest {
 
     @ParameterizedTest(name = "Parsing of {0} should return true")
     @ValueSource(strings = {
+            "3^(2^4)",
+            "2^3^4",
+            "2^2",
+            "2^3!",
             "2<>2",
             "2 <>2",
             "2!==2",

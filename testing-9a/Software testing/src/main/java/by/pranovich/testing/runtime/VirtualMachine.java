@@ -14,7 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-/** Executes the educational stack byte-code. */
+/**
+ * Executes the educational stack byte-code.
+ */
 public final class VirtualMachine {
 
     private final Deque<Double> stack = new ArrayDeque<>();
@@ -75,7 +77,9 @@ public final class VirtualMachine {
                         programCounter = (Integer) instruction.operand() - 1;
                     }
                 }
-                case PRINT -> print(instruction.operand(), stack.pop());
+                case PRINT -> out.print(format(instruction.operand(), stack.pop()));
+                case PRINT_SPACE -> out.print(" ");
+                case PRINT_NEWLINE -> out.print('\n');
                 case HALT -> {
                     return;
                 }
@@ -136,7 +140,7 @@ public final class VirtualMachine {
         for (double value : requireArray((String) operand.get(0))) {
             result.add(format(operand.get(1), value));
         }
-        out.println(result);
+        out.print(result);
     }
 
     private void subtract() {
@@ -157,7 +161,9 @@ public final class VirtualMachine {
         stack.push(Math.pow(base, exponent));
     }
 
-    /** Compares the two top values while preserving their source-code order. */
+    /**
+     * Compares the two top values while preserving their source-code order.
+     */
     private int compareTopValues() {
         double right = stack.pop();
         double left = stack.pop();
@@ -198,6 +204,8 @@ public final class VirtualMachine {
             case "abs" -> Math.abs(arguments[0]);
             case "max" -> Arrays.stream(arguments).max().orElseThrow();
             case "min" -> Arrays.stream(arguments).min().orElseThrow();
+            case "_pi" -> Math.PI;
+            case "_e" -> Math.E;
             default -> throw new IllegalArgumentException(
                     "Неизвестная встроенная функция '" + function.name() + "'");
         };
@@ -240,10 +248,6 @@ public final class VirtualMachine {
                     + name + "' длины " + length);
         }
         return index;
-    }
-
-    private void print(Object type, double value) {
-        out.println(format(type, value));
     }
 
     private String format(Object type, double value) {

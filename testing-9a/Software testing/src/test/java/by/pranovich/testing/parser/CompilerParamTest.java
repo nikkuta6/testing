@@ -88,9 +88,9 @@ class CompilerParamTest {
                         while z * 5 < y {
                             z = y * 1.5e-1;
                         }
-                        print x;
-                        print y;
-                        print z;
+                        print(x);
+                        print(y);
+                        print(z);
                         """,
                         "7\n0\n0.0\n"
                 ),
@@ -100,7 +100,7 @@ class CompilerParamTest {
                         """
                         int x = 1;
                         if x < 5 { x = 7; }
-                        print x;
+                        print(x);
                         """,
                         "7\n"
                 ),
@@ -111,8 +111,8 @@ class CompilerParamTest {
                         int x = 10;
                         int y = 0;
                         if x < 5 { x = 7; } else { y = 10; }
-                        print x;
-                        print y;
+                        print(x);
+                        print(y);
                         """,
                         "10\n10\n"
                 ),
@@ -126,8 +126,8 @@ class CompilerParamTest {
                             sum = sum + i;
                             i = i + 1;
                         }
-                        print sum;
-                        print i;
+                        print(sum);
+                        print(i);
                         """,
                         "3\n3\n"
                 ),
@@ -140,7 +140,7 @@ class CompilerParamTest {
                         if x < 5 {
                             if x < 2 { y = 100; } else { y = 200; }
                         } else { y = 300; }
-                        print y;
+                        print(y);
                         """,
                         "100\n"
                 ),
@@ -151,7 +151,7 @@ class CompilerParamTest {
                         int x = 7;
                         int y = 0;
                         if x < 5 { y = 1; } else if x < 10 { y = 2; } else { y = 3; }
-                        print y;
+                        print(y);
                         """,
                         "2\n"
                 ),
@@ -161,8 +161,8 @@ class CompilerParamTest {
                         """
                         int x;
                         float z;
-                        print x;
-                        print z;
+                        print(x);
+                        print(z);
                         """,
                         "0\n0.0\n"
                 ),
@@ -171,9 +171,9 @@ class CompilerParamTest {
                 Arguments.of(
                         """
                         int x = 1, y = 2, z;
-                        print x;
-                        print y;
-                        print z;
+                        print(x);
+                        print(y);
+                        print(z);
                         """,
                         "1\n2\n0\n"
                 ),
@@ -182,7 +182,7 @@ class CompilerParamTest {
                 Arguments.of(
                         """
                         float f = 1.5e-1;
-                        print f;
+                        print(f);
                         """,
                         "0.15\n"
                 ),
@@ -195,7 +195,7 @@ class CompilerParamTest {
                         while z * 5 < y {
                             z = y / 5;
                         }
-                        print z;
+                        print(z);
                         """,
                         "2.0\n"
                 ),
@@ -204,9 +204,9 @@ class CompilerParamTest {
                 Arguments.of(
                         """
                         int a = 10 - 2 - 3;
-                        print a;
-                        print 3!;
-                        print 3 < 5;
+                        print(a);
+                        print(3!);
+                        print(3 < 5);
                         """,
                         "5\n6\n1\n"
                 ),
@@ -216,12 +216,12 @@ class CompilerParamTest {
                         """
                         int a = 5;
                         int b = 5;
-                        print a == b;
-                        print a <> b;
-                        print a >= b;
-                        print a <= b;
-                        print a > b;
-                        print a < b;
+                        print(a == b);
+                        print(a <> b);
+                        print(a >= b);
+                        print(a <= b);
+                        print(a > b);
+                        print(a < b);
                         """,
                         "1\n0\n1\n1\n0\n0\n"
                 ),
@@ -231,11 +231,11 @@ class CompilerParamTest {
                         """
                         int a = 5;
                         int b = 0;
-                        print a && b;
-                        print a || b;
-                        print !b;
-                        print -a;
-                        print +a;
+                        print(a && b);
+                        print(a || b);
+                        print(!b);
+                        print(-a);
+                        print(+a);
                         """,
                         "0\n1\n1\n-5\n5\n"
                 ),
@@ -261,7 +261,7 @@ class CompilerParamTest {
                 // Присваивание необъявленной переменной
                 Arguments.of("x = 5;"),
                 // Печать необъявленной переменной
-                Arguments.of("print y;"),
+                Arguments.of("print(y);"),
                 // Повторное объявление переменной
                 Arguments.of("int x = 1; int x = 2;"),
                 // 'else' без 'if'

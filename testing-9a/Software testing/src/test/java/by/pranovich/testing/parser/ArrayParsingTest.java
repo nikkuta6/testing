@@ -73,7 +73,7 @@ class ArrayParsingTest {
             "int a = [1 + 1, max(2, 3)];",
             "int a[3]; int i = 0; while i < 3 { a[i] = i ^ 2; i = i + 1; }",
             "int a = [1, 2, 3]; if a[1] > a[0] { a[0] = a[2]; }",
-            "int a = [1, 2, 3]; print a[a[0]];",
+            "int a = [1, 2, 3]; print(a[a[0]]);",
             "int a[2] = [1, 2]; int b[3] = [a[0], a[1], a[0] + a[1]];"
     })
     void parsesArrayPrograms(String source) {
@@ -90,11 +90,11 @@ class ArrayParsingTest {
             "int a[2][3];",
             "int a[2] = [[1, 2]];",
             "int a[2]; int a[3];",
-            "int a[2]; print a;",
+            "int a[2]; print(a + 1);",
             "int a[2]; int b = a;",
             "int a[2]; a = [1, 2];",
-            "print a[0];",
-            "int a[2]; print a[0][0];",
+            "print(a[0]);",
+            "int a[2]; print(a[0][0]);",
             "int a[2]; a[0] = 1",
             "int a[2]; a[0] 1;",
             "int a[2]; a[0] = ;"
@@ -135,7 +135,7 @@ class ArrayParsingTest {
                         List.of("PUSH 0.0", "PUSH 7.0", "ARRAY_STORE a")
                 ),
                 Arguments.of(
-                        "int a[3]; print a[0];",
+                        "int a[3]; print(a[0]);",
                         List.of("PUSH 0.0", "ARRAY_LOAD a")
                 ),
                 Arguments.of(
