@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Whole-array comparison ({@code a == b}, {@code a <> b}) and {@code a.toString()}. */
+/** Whole-array comparison and printing through {@code print a;} / {@code a.toString()}. */
 class ArrayComparisonAndToStringTest {
 
     @ParameterizedTest(name = "[{index}] comparison: {0}")

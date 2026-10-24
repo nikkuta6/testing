@@ -14,7 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-/** Executes the educational stack byte-code. */
+/**
+ * Executes the educational stack byte-code.
+ */
 public final class VirtualMachine {
 
     private final Deque<Double> stack = new ArrayDeque<>();
@@ -159,7 +161,9 @@ public final class VirtualMachine {
         stack.push(Math.pow(base, exponent));
     }
 
-    /** Compares the two top values while preserving their source-code order. */
+    /**
+     * Compares the two top values while preserving their source-code order.
+     */
     private int compareTopValues() {
         double right = stack.pop();
         double left = stack.pop();

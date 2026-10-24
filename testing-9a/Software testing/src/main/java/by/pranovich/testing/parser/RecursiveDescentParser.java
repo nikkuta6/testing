@@ -27,7 +27,9 @@ public final class RecursiveDescentParser {
         this.input = Objects.requireNonNull(input, "input");
     }
 
-    /** Parse a sequence of statements and append HALT. */
+    /**
+     * Parse a sequence of statements and append HALT.
+     */
     public boolean parseProgram() {
         codegen.reset();
         variables.clear();
@@ -42,7 +44,9 @@ public final class RecursiveDescentParser {
         return true;
     }
 
-    /** Parse one expression. Kept as the original expression-test contract. */
+    /**
+     * Parse one expression. Kept as the original expression-test contract.
+     */
     public boolean parse() {
         codegen.reset();
         variables.clear();
@@ -247,12 +251,19 @@ public final class RecursiveDescentParser {
             pos = start;
             return false;
         }
-        String method = readWord();
-        if (!method.equals("toString")) {
-            throw error("Неизвестный метод массива '" + method + "'");
+
+        if (matchSymbol(".")) {
+            String method = readWord();
+            if (!method.equals("toString")) {
+                throw error("Неизвестный метод массива '" + method + "'");
+            }
+            expectSymbol("(");
+            expectSymbol(")");
+        } else if (!peekSymbol(";")) {
+            pos = start;
+            return false;
         }
-        expectSymbol("(");
-        expectSymbol(")");
+
         codegen.emitArrayPrint(name, arrays.get(name));
         return true;
     }
@@ -399,6 +410,7 @@ public final class RecursiveDescentParser {
         }
         return type;
     }
+
 
     private String parseUnary() {
         skipWhitespace();
