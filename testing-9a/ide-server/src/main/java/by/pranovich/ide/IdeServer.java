@@ -64,12 +64,23 @@ public final class IdeServer {
     }
 
     private static void handlePage(HttpExchange exchange) throws IOException {
-        if (!exchange.getRequestURI().getPath().equals("/")) {
+        String path = exchange.getRequestURI().getPath();
+        String resource = switch (path) {
+            case "/" -> "/static/index.html";
+            case "/mandelbrot.mjs" -> "/static/mandelbrot.mjs";
+            default -> null;
+        };
+        if (resource == null) {
             send(exchange, 404, "text/plain", "Not found");
             return;
         }
-        try (InputStream page = IdeServer.class.getResourceAsStream("/static/index.html")) {
-            send(exchange, 200, "text/html", new String(page.readAllBytes(), StandardCharsets.UTF_8));
+        try (InputStream page = IdeServer.class.getResourceAsStream(resource)) {
+            if (page == null) {
+                send(exchange, 404, "text/plain", "Not found");
+                return;
+            }
+            send(exchange, 200, path.equals("/") ? "text/html" : "text/javascript",
+                    new String(page.readAllBytes(), StandardCharsets.UTF_8));
         }
     }
 

@@ -216,11 +216,16 @@ h3:first-of-type {
 }
 
 #win-graphics { min-width: 0; min-height: 0; }
-#win-graphics h3 { justify-content: space-between; height: 26px; flex-shrink: 0; }
-.graphics-actions { display: flex; align-items: center; gap: 8px; }
+#win-graphics h3 { justify-content: space-between; height: auto; min-height: 26px; flex-shrink: 0; flex-wrap: wrap; gap: 4px; }
+.graphics-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 #graphics-size { font-size: 11px; font-weight: normal; color: #aaaaaa; }
 .graphics-body { min-height: 0; padding: 8px; background: #252526; }
 #graphics-canvas { display: block; background: white; }
+.graphics-body.mandelbrot-mode { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.mandelbrot-mode #graphics-canvas { cursor: crosshair; flex-shrink: 0; }
+#mandelbrot-controls { padding: 6px 8px; background: #252526; color: #d4d4d4; font-size: 12px; flex-shrink: 0; }
+#mandelbrot-controls input { width: 64px; color: #ffffff; background: #1e1e1e; border: 1px solid #555; padding: 2px 4px; }
+#mandelbrot-status { margin: 4px 0 0; color: #ffcf40; overflow-wrap: anywhere; }
 
 .gutter.gutter-vertical {
   background-color: transparent; 
@@ -367,10 +372,16 @@ h3:first-of-type {
           <span>Графика</span>
           <span class="graphics-actions">
             <span id="graphics-size">640 × 480</span>
+            <button type="button" class="header-btn" id="mandelbrot-btn" aria-pressed="false" title="Показать множество Мандельброта и выбирать точку C мышью" disabled>Мандельброт</button>
             <button type="button" class="header-btn" id="graphics-example-btn" title="Загрузить пример рисования в редактор">Пример</button>
             <button type="button" class="header-btn" id="graphics-clear-btn" title="Очистить изображение">Очистить</button>
           </span>
         </h3>
+        <div id="mandelbrot-controls" hidden>
+          <label>Шагов орбиты: <input id="mandelbrot-steps" type="number" min="1" max="1000" step="1" value="80" required></label>
+          <span>z₀ = 0, zₙ₊₁ = zₙ² + C</span>
+          <p id="mandelbrot-status" role="status" aria-live="polite"></p>
+        </div>
         <div class="window-body graphics-body">
           <canvas id="graphics-canvas" width="640" height="480" aria-label="Графический вывод программы">Графический вывод требует поддержки canvas.</canvas>
         </div>
@@ -868,7 +879,10 @@ function showOutput(text) {
 }
 
 // Rebuild the canvas from a prefix of commands so stepping backwards restores the drawing too.
+let displayedGraphics = { commands: [], count: 0 };
 function showGraphics(commands = [], count = commands.length) {
+  displayedGraphics = { commands, count };
+  window.mandelbrotView?.hide();
   const canvas = document.getElementById('graphics-canvas');
   canvas.width = 640;
   canvas.height = 480;
@@ -906,9 +920,14 @@ function showGraphics(commands = [], count = commands.length) {
   }
   document.getElementById('graphics-size').textContent = `${canvas.width} × ${canvas.height}`;
 }
+window.restoreProgramGraphics = () => showGraphics(displayedGraphics.commands, displayedGraphics.count);
 
 document.getElementById('graphics-clear-btn').addEventListener('click', e => {
   e.stopPropagation();
+  if (window.mandelbrotView?.active) {
+    window.mandelbrotView.resetOrbit();
+    return;
+  }
   const canvas = document.getElementById('graphics-canvas');
   const ctx = canvas.getContext('2d');
   ctx.save();
@@ -1090,6 +1109,20 @@ window.executeVmPrint = function(text, colorToken = null, sizeParam = null) {
 };
 
 
+  </script>
+  <script type="module">
+    import { MandelbrotView } from '/mandelbrot.mjs';
+    window.mandelbrotView = new MandelbrotView({
+      canvas: document.getElementById('graphics-canvas'),
+      body: document.querySelector('#win-graphics .graphics-body'),
+      button: document.getElementById('mandelbrot-btn'),
+      controls: document.getElementById('mandelbrot-controls'),
+      steps: document.getElementById('mandelbrot-steps'),
+      status: document.getElementById('mandelbrot-status'),
+      clearButton: document.getElementById('graphics-clear-btn'),
+      onEnter: () => debugStop(),
+      onExit: () => window.restoreProgramGraphics()
+    });
   </script>
 
 </body>
