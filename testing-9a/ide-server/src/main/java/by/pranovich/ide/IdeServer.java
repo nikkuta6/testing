@@ -31,6 +31,7 @@ import java.util.concurrent.TimeoutException;
 /**
  * HTTP API for the web IDE: serves the page and runs programs.
  * POST /api/run with the source as the body returns byte-code, output, canvas drawing commands and VM memory as JSON.
+ * POST /api/run?clicks=x,y;x,y runs the program and then calls its onClick(x, y) for every canvas click in order.
  * POST /api/debug additionally returns the source line of every instruction and a VM snapshot before every step.
  */
 public final class IdeServer {
@@ -39,6 +40,8 @@ public final class IdeServer {
     private static final int MAX_OUTPUT_BYTES = 1 << 20;
     private static final long RUN_TIMEOUT_SECONDS = 3;
     private static final int MAX_DEBUG_STEPS = 5000;
+    private static final int MAX_CLICKS = 1000;
+    private static final String CLICK_HANDLER = "onClick";
 
     // shortcut: a timed-out program keeps spinning on its daemon thread (Thread.stop is gone); move runs to a child process if that becomes a problem.
     private static final ExecutorService RUNNER = Executors.newCachedThreadPool(task -> {
@@ -82,10 +85,56 @@ public final class IdeServer {
             send(exchange, 413, "text/plain", "Source is too large");
             return;
         }
-        send(exchange, 200, "application/json", run(new String(body, StandardCharsets.UTF_8), debug));
+        String clickCalls;
+        try {
+            clickCalls = clickCalls(exchange.getRequestURI().getQuery());
+        } catch (IllegalArgumentException exception) {
+            send(exchange, 400, "text/plain", exception.getMessage());
+            return;
+        }
+        send(exchange, 200, "application/json", run(new String(body, StandardCharsets.UTF_8), debug, clickCalls));
+    }
+
+    /**
+     * Source text that calls the click handler for {@code clicks=x,y;x,y}, empty without clicks.
+     * Coordinates are parsed as int, so nothing but numbers reaches the source.
+     */
+    static String clickCalls(String query) {
+        if (query == null || query.isEmpty()) {
+            return "";
+        }
+        if (!query.startsWith("clicks=")) {
+            throw new IllegalArgumentException("Expected clicks=x,y;x,y");
+        }
+        String[] clicks = query.substring("clicks=".length()).split(";");
+        if (clicks.length > MAX_CLICKS) {
+            throw new IllegalArgumentException("Too many clicks");
+        }
+        StringBuilder calls = new StringBuilder();
+        for (String click : clicks) {
+            String[] point = click.split(",");
+            if (point.length != 2) {
+                throw new IllegalArgumentException("Expected x,y but found: " + click);
+            }
+            try {
+                calls.append('\n').append(CLICK_HANDLER).append('(').append(Integer.parseInt(point[0].trim()))
+                        .append(", ").append(Integer.parseInt(point[1].trim())).append(");");
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("Expected integer coordinates but found: " + click);
+            }
+        }
+        return calls.toString();
     }
 
     static String run(String source, boolean debug) {
+        return run(source, debug, "");
+    }
+
+    /**
+     * shortcut: every click re-runs the whole program and replays all clicks (no live VM between requests);
+     * keep a VM per session instead if programs get too slow to replay.
+     */
+    static String run(String source, boolean debug, String clickCalls) {
         Compiler compiler = new Compiler(source);
         if (!compiler.compile()) {
             SyntaxError error = compiler.getSyntaxError();
@@ -93,6 +142,14 @@ public final class IdeServer {
                     + ",\"line\":" + error.getLineNumber()
                     + ",\"position\":" + error.getPosition() + "}}";
         }
+        // The program handles clicks when it still compiles with a handler call appended: fun void onClick(int x, int y).
+        boolean handlesClicks = new Compiler(source + "\n" + CLICK_HANDLER + "(0, 0);").compile();
+        if (handlesClicks && !clickCalls.isEmpty()) {
+            source += clickCalls;
+            compiler = new Compiler(source);
+            compiler.compile();
+        }
+        Program program = compiler.getProgram();
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         VirtualMachine vm = new VirtualMachine(new PrintStream(new LimitedStream(output), true, StandardCharsets.UTF_8));
@@ -100,7 +157,7 @@ public final class IdeServer {
         boolean timedOut = false;
         List<String> steps = new ArrayList<>();
         // Output is ASCII (numbers, spaces, brackets), so its byte count is also the client's char offset.
-        Future<?> execution = RUNNER.submit(() -> vm.run(compiler.getProgram(), debug ? programCounter -> {
+        Future<?> execution = RUNNER.submit(() -> vm.run(program, debug ? programCounter -> {
             if (steps.size() == MAX_DEBUG_STEPS) {
                 throw new IllegalStateException("Пошаговый режим: показаны первые " + MAX_DEBUG_STEPS + " шагов");
             }
@@ -120,13 +177,14 @@ public final class IdeServer {
             runtimeError = "Выполнение прервано";
         }
 
-        return "{\"bytecode\":" + quote(compiler.getProgram().disassemble())
+        return "{\"bytecode\":" + quote(program.disassemble())
+                + ",\"onClick\":" + handlesClicks
                 + ",\"output\":" + quote(output.toString(StandardCharsets.UTF_8))
                 + ",\"canvas\":" + (timedOut ? "[]" : canvasJson(vm))
                 + ",\"runtimeError\":" + (runtimeError == null ? "null" : quote(runtimeError))
                 // The VM is still running after a timeout, its maps cannot be read safely.
                 + ",\"variables\":" + (timedOut ? "{},\"locals\":{},\"stack\":[]" : memoryJson(vm))
-                + (debug ? ",\"lines\":" + linesJson(source, compiler.getProgram())
+                + (debug ? ",\"lines\":" + linesJson(source, program)
                         + ",\"steps\":" + (timedOut ? "[]" : "[" + String.join(",", steps) + "]") : "")
                 + "}";
     }

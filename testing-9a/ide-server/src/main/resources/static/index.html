@@ -903,6 +903,7 @@ document.getElementById('canvas-view').addEventListener('click', e => {
   const y = Math.round((e.clientY - box.top - (box.height - view.height * scale) / 2) / scale);
   if (x < 0 || y < 0 || x > view.width || y > view.height) return; // клик по полям вокруг холста
   document.getElementById('canvas-coords').textContent = `x = ${x}, y = ${y}`;
+  if (handlesClicks && !debug) window.runProgram([...canvasClicks, [x, y]]);
 });
 
 // Холст на весь экран: окно растягивается поверх IDE, а где браузер разрешает — ещё и настоящий полноэкранный режим
@@ -939,10 +940,17 @@ function showBytecode(text, pc = -1, cls = 'bc-current') {
   if (current) current.scrollIntoView({ block: 'nearest' });
 }
 
-window.runProgram = async function() {
+// Клики для fun void onClick(int x, int y): копятся с последнего запуска по ▶; сервер при каждом клике
+// выполняет программу заново и вызывает onClick для всех кликов по порядку, поэтому глобальные переменные сохраняются.
+let canvasClicks = [];
+let handlesClicks = false;
+
+window.runProgram = async function(clicks = []) {
   if (debug) debugStop();
-  const result = await requestRun('/api/run');
+  const result = await requestRun('/api/run' + (clicks.length ? '?clicks=' + clicks.map(c => c.join(',')).join(';') : ''));
   if (!result) return;
+  canvasClicks = clicks;
+  handlesClicks = result.onClick;
   showBytecode(result.bytecode);
   showMemory(result.variables, result.stack, result.locals);
   showOutput(result.output);
