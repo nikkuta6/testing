@@ -34,6 +34,7 @@ public final class RecursiveDescentParser {
     private Signature currentFunction;
     private int functionStart;
     private int nesting;
+    private int syncDepth;
 
     private record Signature(String name, String returnType, List<String> parameterNames,
                             List<String> parameterTypes) {
@@ -100,6 +101,7 @@ public final class RecursiveDescentParser {
             case "fun" -> parseFunction();
             case "return" -> parseReturn();
             case "go" -> parseGo();
+            case "sync" -> parseSync();
             case "else" -> throw error("'else' без предшествующего 'if'");
             default -> {
                 char c = input.charAt(pos);
@@ -253,6 +255,16 @@ public final class RecursiveDescentParser {
         codegen.patchJump(jzIdx, codegen.size());
     }
 
+    /** One lock for the whole program: sync blocks of all goroutines exclude each other; nesting is allowed. */
+    private void parseSync() {
+        readWord();
+        codegen.emit(Opcode.LOCK);
+        syncDepth++;
+        parseBlock();
+        syncDepth--;
+        codegen.emit(Opcode.UNLOCK);
+    }
+
     private void parsePrint() {
         readWord();
         expectSymbol("(");
@@ -310,6 +322,7 @@ public final class RecursiveDescentParser {
         locals.clear();
         currentFunction = null;
         nesting = 0;
+        syncDepth = 0;
     }
 
     /** Pre-pass over the text: only {@code fun} headers are read, their errors are left to the main pass. */
@@ -426,6 +439,10 @@ public final class RecursiveDescentParser {
         readWord();
         if (currentFunction == null) {
             throw error("'return' вне функции");
+        }
+        if (syncDepth > 0) {
+            // the jump out of the block would skip UNLOCK
+            throw error("'return' внутри блока sync запрещён");
         }
         String returnType = currentFunction.returnType();
         if (returnType.equals("void") != peekSymbol(";")) {
@@ -898,7 +915,7 @@ public final class RecursiveDescentParser {
 
     private boolean isKeyword(String word) {
         return switch (word) {
-            case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return", "go",
+            case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return", "go", "sync",
                     "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e",
                     "re", "im", "conj", "arg" -> true;
             default -> false;

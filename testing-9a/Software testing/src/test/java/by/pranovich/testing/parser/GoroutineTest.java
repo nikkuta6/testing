@@ -46,7 +46,15 @@ class GoroutineTest {
                 Arguments.of("int a = 0, b = 0, c = 0;"
                         + " fun void setA(int v) { a = v; } fun void setB(int v) { b = v; } fun void setC(int v) { c = v; }"
                         + " go setA(1); go setB(2); go setC(3);"
-                        + " while a * b * c == 0 { } print(a, b, c);", "1 2 3\n")
+                        + " while a * b * c == 0 { } print(a, b, c);", "1 2 3\n"),
+                // sync makes the read-modify-write of the shared counter atomic: no update is lost
+                Arguments.of("int c = 0, done1 = 0, done2 = 0;"
+                        + " fun void p(int id) { int i = 0; while i < 20000 { sync { c = c + 1; } i = i + 1; }"
+                        + " if id == 1 { done1 = 1; } else { done2 = 1; } }"
+                        + " go p(1); go p(2); while done1 + done2 < 2 { } print(c);", "40000\n"),
+                // nested blocks take the same lock again
+                Arguments.of("int x = 0; sync { x = 1; sync { x = x + 1; } } print(x);", "2\n"),
+                Arguments.of("fun void f() { sync { print(1); } } sync { f(); }", "1\n")
         );
     }
 
@@ -64,6 +72,22 @@ class GoroutineTest {
         RuntimeException error = assertThrows(RuntimeException.class,
                 () -> execute("fun void bad() { print(1 / 0); } go bad();"));
         assertTrue(error.getMessage().contains("Деление на ноль"), error.getMessage());
+    }
+
+    /** The failed goroutine releases the lock, so the other one still gets in and the run ends. */
+    @Test
+    void releasesLockOfFailedGoroutine() {
+        RuntimeException error = assertThrows(RuntimeException.class, () -> execute(
+                "fun void bad() { sync { print(1 / 0); } } fun void good() { sync { print(7); } } go bad(); go good();"));
+        assertTrue(error.getMessage().contains("Деление на ноль"), error.getMessage());
+    }
+
+    @Test
+    void emitsLockAroundSyncBlock() {
+        Program program = compile("int x = 0; sync { x = 1; }");
+        var opcodes = program.instructions().stream().map(i -> i.opcode()).toList();
+        assertTrue(opcodes.indexOf(Opcode.LOCK) < opcodes.lastIndexOf(Opcode.STORE), program.disassemble());
+        assertTrue(opcodes.lastIndexOf(Opcode.STORE) < opcodes.indexOf(Opcode.UNLOCK), program.disassemble());
     }
 
     @Test
@@ -89,7 +113,12 @@ class GoroutineTest {
                 Arguments.of("fun void f() { } go f;", "После 'go' ожидался вызов объявленной функции"),
                 Arguments.of("fun void f() { } go f()", "Ожидался символ ';'"),
                 Arguments.of("fun void f(int a) { } go f();", "принимает аргументов: 1, передано: 0"),
-                Arguments.of("int go = 1;", "Ожидался идентификатор")
+                Arguments.of("int go = 1;", "Ожидался идентификатор"),
+                Arguments.of("fun void f() { sync { return; } }", "'return' внутри блока sync запрещён"),
+                Arguments.of("fun int f() { sync { if 1 { return 1; } } return 0; }",
+                        "'return' внутри блока sync запрещён"),
+                Arguments.of("int x = 0; sync x = 1;", "Ожидался символ '{'"),
+                Arguments.of("int sync = 1;", "Ожидался идентификатор")
         );
     }
 

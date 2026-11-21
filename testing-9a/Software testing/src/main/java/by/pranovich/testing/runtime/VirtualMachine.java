@@ -17,6 +17,7 @@ import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.IntConsumer;
 
 /**
@@ -47,6 +48,8 @@ public final class VirtualMachine {
     private final PrintStream out;
     private final List<Thread> goroutines;
     private final AtomicReference<RuntimeException> goroutineError;
+    // The lock of sync blocks; it also makes writes inside them, array elements included, visible to the next holder.
+    private final ReentrantLock syncLock;
 
     public VirtualMachine() {
         this(System.out);
@@ -54,21 +57,23 @@ public final class VirtualMachine {
 
     public VirtualMachine(PrintStream out) {
         this(out, new ConcurrentHashMap<>(), new ConcurrentHashMap<>(),
-                new CopyOnWriteArrayList<>(), new AtomicReference<>());
+                new CopyOnWriteArrayList<>(), new AtomicReference<>(), new ReentrantLock());
     }
 
     /** A goroutine of {@code parent}: fresh stack and frames, shared memory. */
     private VirtualMachine(VirtualMachine parent) {
-        this(parent.out, parent.variables, parent.arrays, parent.goroutines, parent.goroutineError);
+        this(parent.out, parent.variables, parent.arrays, parent.goroutines, parent.goroutineError, parent.syncLock);
     }
 
     private VirtualMachine(PrintStream out, Map<String, Object> variables, Map<String, Object[]> arrays,
-                           List<Thread> goroutines, AtomicReference<RuntimeException> goroutineError) {
+                           List<Thread> goroutines, AtomicReference<RuntimeException> goroutineError,
+                           ReentrantLock syncLock) {
         this.out = out;
         this.variables = variables;
         this.arrays = arrays;
         this.goroutines = goroutines;
         this.goroutineError = goroutineError;
+        this.syncLock = syncLock;
     }
 
     public void run(Program program) {
@@ -82,7 +87,11 @@ public final class VirtualMachine {
      */
     public void run(Program program, IntConsumer beforeStep) {
         resetMemory();
-        execute(program.instructions(), 0, beforeStep);
+        try {
+            execute(program.instructions(), 0, beforeStep);
+        } finally {
+            releaseSyncLock();
+        }
         awaitGoroutines();
     }
 
@@ -132,6 +141,8 @@ public final class VirtualMachine {
                 case NO_RETURN -> throw new IllegalStateException(
                         "Функция '" + instruction.operand() + "' завершилась без return");
                 case POP -> stack.pop();
+                case LOCK -> lockSync();
+                case UNLOCK -> syncLock.unlock();
                 case GO -> programCounter = startGoroutine(code, programCounter, (Integer) instruction.operand());
                 case HALT -> {
                     return;
@@ -168,9 +179,28 @@ public final class VirtualMachine {
                 goroutine.execute(code, entry, _ -> { });
             } catch (RuntimeException exception) {
                 goroutineError.compareAndSet(null, exception);
+            } finally {
+                goroutine.releaseSyncLock();
             }
         }));
         return call;
+    }
+
+    /** Interruptible, so that a run stopped by a timeout does not stay blocked on the lock. */
+    private void lockSync() {
+        try {
+            syncLock.lockInterruptibly();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Выполнение прервано во время ожидания блока sync", exception);
+        }
+    }
+
+    /** A goroutine that failed inside sync blocks must not leave the others waiting forever. */
+    private void releaseSyncLock() {
+        while (syncLock.isHeldByCurrentThread()) {
+            syncLock.unlock();
+        }
     }
 
     /** Goroutines may start goroutines, so the list can grow while it is being joined. */
