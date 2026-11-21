@@ -1,6 +1,7 @@
 package by.pranovich.testing.parser;
 
 import by.pranovich.testing.bytecode.CodeGenerator;
+import by.pranovich.testing.bytecode.FunctionCall;
 import by.pranovich.testing.bytecode.Opcode;
 import by.pranovich.testing.bytecode.Program;
 import by.pranovich.testing.runtime.VirtualMachine;
@@ -97,6 +98,7 @@ public final class RecursiveDescentParser {
             case "if" -> parseIf();
             case "while" -> parseWhile();
             case "print" -> parsePrint();
+            case "canvas", "color", "line", "circle", "rect", "clear" -> parseDrawing();
             case "fun" -> parseFunction();
             case "return" -> parseReturn();
             case "else" -> throw error("'else' без предшествующего 'if'");
@@ -113,6 +115,31 @@ public final class RecursiveDescentParser {
             }
         }
         codegen.setSourcePosition(enclosingPosition);
+    }
+
+    /** Drawing commands are statements; their numeric arguments can be arbitrary real expressions. */
+    private void parseDrawing() {
+        String name = readWord();
+        int expected = switch (name) {
+            case "canvas" -> 2;
+            case "color", "circle" -> 3;
+            case "line", "rect" -> 4;
+            default -> 0; // clear()
+        };
+        expectSymbol("(");
+        int count = 0;
+        if (!peekSymbol(")")) {
+            do {
+                requireReal(parseExpression(), "Команда '" + name + "'");
+                count++;
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+        if (count != expected) {
+            throw error("Команда '" + name + "' принимает аргументов: " + expected + ", передано: " + count);
+        }
+        expectSymbol(";");
+        codegen.emit(Opcode.DRAW, new FunctionCall(name, count));
     }
 
     private void parseDeclaration() {
@@ -881,7 +908,7 @@ public final class RecursiveDescentParser {
         return switch (word) {
             case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return",
                     "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e",
-                    "re", "im", "conj", "arg" -> true;
+                    "re", "im", "conj", "arg", "canvas", "color", "line", "circle", "rect", "clear" -> true;
             default -> false;
         };
     }

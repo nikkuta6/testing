@@ -8,6 +8,7 @@ import by.pranovich.testing.bytecode.Program;
 
 import java.io.PrintStream;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
@@ -24,6 +25,7 @@ public final class VirtualMachine {
     /** Largest int magnitude: every integer up to it is exact in a double, 2^53 + 1 already is not. */
     public static final double MAX_EXACT_INT = 0x1p53 - 1;
     private static final int MAX_CALL_DEPTH = 10_000;
+    private static final int MAX_DRAWING_COMMANDS = 10_000;
 
     /** A call of a user function: names in {@code locals} live in this frame, all others are global. */
     private record Frame(int returnAddress, List<?> locals,
@@ -39,6 +41,7 @@ public final class VirtualMachine {
     private final Map<String, Object> variables = new HashMap<>();
     private final Map<String, Object[]> arrays = new HashMap<>();
     private final Deque<Frame> frames = new ArrayDeque<>();
+    private final List<DrawingCommand> drawingCommands = new ArrayList<>();
     private final PrintStream out;
 
     public VirtualMachine() {
@@ -88,6 +91,7 @@ public final class VirtualMachine {
                 case NOT -> pushBoolean(popReal() == 0.0);
                 case FACT -> stack.push(checked(instruction.operand(), factorial(popReal())));
                 case CALL -> call((FunctionCall) instruction.operand());
+                case DRAW -> draw((FunctionCall) instruction.operand());
 
                 case JMP -> programCounter = (Integer) instruction.operand() - 1;
                 case JZ -> {
@@ -117,6 +121,60 @@ public final class VirtualMachine {
         variables.clear();
         arrays.clear();
         frames.clear();
+        drawingCommands.clear();
+    }
+
+    public List<DrawingCommand> drawingCommands() {
+        return List.copyOf(drawingCommands);
+    }
+
+    /** Debug snapshots store a prefix length instead of copying the full drawing at every step. */
+    public int drawingCommandCount() {
+        return drawingCommands.size();
+    }
+
+    private void draw(FunctionCall command) {
+        if (drawingCommands.size() >= MAX_DRAWING_COMMANDS) {
+            throw new IllegalStateException("Слишком много графических команд (больше " + MAX_DRAWING_COMMANDS + ")");
+        }
+        Object[] values = popArguments(command.argumentCount());
+        List<Double> arguments = new ArrayList<>();
+        for (Object value : values) {
+            double number = (Double) value;
+            if (!Double.isFinite(number)) {
+                throw new IllegalArgumentException("Графика: аргументы должны быть конечными числами");
+            }
+            arguments.add(number);
+        }
+        switch (command.name()) {
+            case "canvas" -> {
+                for (double size : arguments) {
+                    if (size != Math.rint(size) || size < 1 || size > 4096) {
+                        throw new IllegalArgumentException("canvas: размеры должны быть целыми от 1 до 4096");
+                    }
+                }
+            }
+            case "color" -> {
+                for (double channel : arguments) {
+                    if (channel != Math.rint(channel) || channel < 0 || channel > 255) {
+                        throw new IllegalArgumentException("color: компоненты RGB должны быть целыми от 0 до 255");
+                    }
+                }
+            }
+            case "circle" -> {
+                if (arguments.get(2) < 0) {
+                    throw new IllegalArgumentException("circle: радиус не может быть отрицательным");
+                }
+            }
+            case "rect" -> {
+                if (arguments.get(2) < 0 || arguments.get(3) < 0) {
+                    throw new IllegalArgumentException("rect: ширина и высота не могут быть отрицательными");
+                }
+            }
+            case "line", "clear" -> { }
+            default -> throw new IllegalArgumentException("Неизвестная графическая команда: " + command.name());
+        }
+        drawingCommands.add(new DrawingCommand(command.name(), arguments));
     }
 
     /** CALL_FUN points at the ENTER of the function, whose operand lists the locals of the new frame. */

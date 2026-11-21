@@ -3,6 +3,7 @@ package by.pranovich.ide;
 import by.pranovich.testing.bytecode.Program;
 import by.pranovich.testing.compiler.Compiler;
 import by.pranovich.testing.compiler.SyntaxError;
+import by.pranovich.testing.runtime.DrawingCommand;
 import by.pranovich.testing.runtime.VirtualMachine;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -104,7 +105,8 @@ public final class IdeServer {
             if (steps.size() == MAX_DEBUG_STEPS) {
                 throw new IllegalStateException("Пошаговый режим: показаны первые " + MAX_DEBUG_STEPS + " шагов");
             }
-            steps.add("{\"pc\":" + programCounter + ",\"out\":" + output.size() + ",\"variables\":" + memoryJson(vm) + "}");
+            steps.add("{\"pc\":" + programCounter + ",\"out\":" + output.size()
+                    + ",\"graphics\":" + vm.drawingCommandCount() + ",\"variables\":" + memoryJson(vm) + "}");
         } : programCounter -> { }));
         try {
             execution.get(RUN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -123,11 +125,20 @@ public final class IdeServer {
         return "{\"bytecode\":" + quote(compiler.getProgram().disassemble())
                 + ",\"output\":" + quote(output.toString(StandardCharsets.UTF_8))
                 + ",\"runtimeError\":" + (runtimeError == null ? "null" : quote(runtimeError))
+                + ",\"graphics\":" + (timedOut ? "[]" : graphicsJson(vm.drawingCommands()))
                 // The VM is still running after a timeout, its maps cannot be read safely.
                 + ",\"variables\":" + (timedOut ? "{},\"locals\":{},\"stack\":[]" : memoryJson(vm))
                 + (debug ? ",\"lines\":" + linesJson(source, compiler.getProgram())
                         + ",\"steps\":" + (timedOut ? "[]" : "[" + String.join(",", steps) + "]") : "")
                 + "}";
+    }
+
+    private static String graphicsJson(List<DrawingCommand> commands) {
+        StringJoiner json = new StringJoiner(",", "[", "]");
+        for (DrawingCommand command : commands) {
+            json.add("{\"name\":" + quote(command.name()) + ",\"arguments\":" + command.arguments() + "}");
+        }
+        return json.toString();
     }
 
     /** 1-based source line of every instruction, 0 when the instruction has no source statement. */

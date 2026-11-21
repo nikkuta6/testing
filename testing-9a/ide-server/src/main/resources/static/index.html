@@ -215,6 +215,13 @@ h3:first-of-type {
   font-family: monospace;
 }
 
+#win-graphics { min-width: 0; min-height: 0; }
+#win-graphics h3 { justify-content: space-between; height: 26px; flex-shrink: 0; }
+.graphics-actions { display: flex; align-items: center; gap: 8px; }
+#graphics-size { font-size: 11px; font-weight: normal; color: #aaaaaa; }
+.graphics-body { min-height: 0; padding: 8px; background: #252526; }
+#graphics-canvas { display: block; background: white; }
+
 .gutter.gutter-vertical {
   background-color: transparent; 
   height: 4px !important;       
@@ -355,6 +362,19 @@ h3:first-of-type {
         </div>
       </div>
 
+      <div class="window-box panel-sub-window" id="win-graphics">
+        <h3>
+          <span>Графика</span>
+          <span class="graphics-actions">
+            <span id="graphics-size">640 × 480</span>
+            <button type="button" class="header-btn" id="graphics-example-btn" title="Загрузить пример рисования в редактор">Пример</button>
+            <button type="button" class="header-btn" id="graphics-clear-btn" title="Очистить изображение">Очистить</button>
+          </span>
+        </h3>
+        <div class="window-body graphics-body">
+          <canvas id="graphics-canvas" width="640" height="480" aria-label="Графический вывод программы">Графический вывод требует поддержки canvas.</canvas>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -380,10 +400,11 @@ let windowSizesStorage = savedSettings.windowSizesStorage || {
   'pane-stack': 33.34
 };
 
-// Расширяем дефолтные настройки (добавляем базовые 50/50 для низа)
+// Новая панель получает долю ширины и при восстановлении старого расположения.
 let bottomWindowSizesStorage = savedSettings.bottomWindowSizesStorage || {
-  'win-global-vars': 50,
-  'win-output': 50
+  'win-global-vars': 25,
+  'win-output': 30,
+  'win-graphics': 45
 };
 
 function saveLayoutToStorage() {
@@ -506,6 +527,9 @@ savedBottomOrder.forEach(id => {
   const el = document.getElementById(id);
   if (el && bottomContainer) bottomContainer.appendChild(el); 
 });
+['win-global-vars', 'win-output', 'win-graphics'].forEach(id => {
+  if (!savedBottomOrder.includes(id)) bottomContainer.appendChild(document.getElementById(id));
+});
 
 initRightSplit();
 
@@ -560,7 +584,7 @@ function LangHighlightRules() {
       { token: 'comment', regex: '/\\*', next: 'comment' },
       { token: 'storage.type', regex: '\\b(?:int|float|complex|void)\\b' },
       { token: 'keyword.control', regex: '\\b(?:if|else|while|fun|return)\\b' },
-      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|re|im|conj|arg|_pi|_e)\\b' },
+      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|re|im|conj|arg|_pi|_e|canvas|color|line|circle|rect|clear)\\b' },
       { token: 'constant.numeric', regex: '(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?(?:i\\b)?' },
       { token: 'variable', regex: '[A-Za-z_\\u0400-\\u04FF][\\w\\u0400-\\u04FF]*' },
       { token: 'keyword.operator', regex: '<>|<=|>=|==|&&|\\|\\||[-+*/^!<>=]' },
@@ -670,7 +694,9 @@ function initBottomSplit() {
   const currentBottomIDs = Array.from(container.querySelectorAll('.panel-sub-window')).map(el => el.id);
   
   // Строим массив размеров на основе текущего порядка ID окон
-  const orderedBottomSizes = currentBottomIDs.map(id => bottomWindowSizesStorage[id] || (100 / currentBottomIDs.length));
+  const weights = currentBottomIDs.map(id => bottomWindowSizesStorage[id] || (100 / currentBottomIDs.length));
+  const totalWeight = weights.reduce((sum, size) => sum + size, 0);
+  const orderedBottomSizes = weights.map(size => size / totalWeight * 100);
 
   bottomSplit = Split(currentBottomIDs.map(id => '#' + id), {
     sizes: orderedBottomSizes,
@@ -702,6 +728,8 @@ initBottomSplit();
 Sortable.create(bottomContainer, {
     animation: 150,
     handle: 'h3', 
+    filter: '.header-btn',
+    preventOnFilter: false,
     ghostClass: 'sortable-ghost',
     forceFallback: true,
     fallbackClass: "sortable-fallback",
@@ -800,6 +828,7 @@ async function requestRun(url) {
   document.querySelector('#win-output .window-body.console-log').replaceChildren();
   editor.session.clearAnnotations();
   clearLineMarkers();
+  showGraphics([]);
   window.idePrint('[Система]: Запуск...', { isSystem: true });
 
   let result;
@@ -838,6 +867,73 @@ function showOutput(text) {
   });
 }
 
+// Rebuild the canvas from a prefix of commands so stepping backwards restores the drawing too.
+function showGraphics(commands = [], count = commands.length) {
+  const canvas = document.getElementById('graphics-canvas');
+  canvas.width = 640;
+  canvas.height = 480;
+  const ctx = canvas.getContext('2d');
+  function clearCanvas() {
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
+  clearCanvas();
+  for (const command of commands.slice(0, count)) {
+    const a = command.arguments;
+    switch (command.name) {
+      case 'canvas':
+        canvas.width = a[0];
+        canvas.height = a[1];
+        clearCanvas();
+        break;
+      case 'color': ctx.strokeStyle = `rgb(${a[0]}, ${a[1]}, ${a[2]})`; break;
+      case 'clear': clearCanvas(); break;
+      case 'line':
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(a[2], a[3]);
+        ctx.stroke();
+        break;
+      case 'circle':
+        ctx.beginPath();
+        ctx.arc(a[0], a[1], a[2], 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      case 'rect': ctx.strokeRect(a[0], a[1], a[2], a[3]); break;
+    }
+  }
+  document.getElementById('graphics-size').textContent = `${canvas.width} × ${canvas.height}`;
+}
+
+document.getElementById('graphics-clear-btn').addEventListener('click', e => {
+  e.stopPropagation();
+  const canvas = document.getElementById('graphics-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+});
+document.getElementById('graphics-example-btn').addEventListener('click', e => {
+  e.stopPropagation();
+  window.editorInstance.setValue(`canvas(400, 240);
+color(40, 110, 220);
+rect(20, 20, 360, 200);
+circle(200, 120, 70);
+color(220, 60, 60);
+line(20, 120, 380, 120);
+float x = 20;
+while x < 380 {
+    line(x, 120 - 50 * sin(x / 30), x + 2, 120 - 50 * sin((x + 2) / 30));
+    x = x + 2;
+}
+`, -1);
+  window.editorInstance.focus();
+});
+showGraphics([]);
+
 // Байт-код построчно; инструкция pc подсвечена классом cls
 function showBytecode(text, pc = -1, cls = 'bc-current') {
   const view = document.getElementById('bytecode-view');
@@ -858,6 +954,7 @@ window.runProgram = async function() {
   showBytecode(result.bytecode);
   showMemory(result.variables, result.stack, result.locals);
   showOutput(result.output);
+  showGraphics(result.graphics);
   if (result.runtimeError) {
     window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
   }
@@ -902,6 +999,7 @@ function debugGo(index) {
     showBytecode(result.bytecode, step.pc);
     showMemory(step.variables, step.stack, step.locals);
     showOutput(result.output.slice(0, step.out));
+    showGraphics(result.graphics, step.graphics);
     document.getElementById('debug-status').textContent =
       `шаг ${debug.index + 1}/${steps.length}` + (line ? `, строка ${line}` : '');
     return;
@@ -914,6 +1012,7 @@ function debugGo(index) {
   showBytecode(result.bytecode, failed ? last.pc : -1, 'bc-error');
   showMemory(result.variables, result.stack, result.locals);
   showOutput(result.output);
+  showGraphics(result.graphics);
   if (result.runtimeError) {
     window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
   }
