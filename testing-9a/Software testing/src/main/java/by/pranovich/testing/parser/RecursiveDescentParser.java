@@ -99,6 +99,7 @@ public final class RecursiveDescentParser {
             case "print" -> parsePrint();
             case "fun" -> parseFunction();
             case "return" -> parseReturn();
+            case "go" -> parseGo();
             case "else" -> throw error("'else' без предшествующего 'if'");
             default -> {
                 char c = input.charAt(pos);
@@ -182,7 +183,7 @@ public final class RecursiveDescentParser {
         }
         if (functions.containsKey(name) && peekSymbol("(")) {
             // A call statement discards the result.
-            if (!parseUserCall(name).equals("void")) {
+            if (!parseUserCall(name, false).equals("void")) {
                 codegen.emit(Opcode.POP);
             }
         } else if (matchSymbol("[")) {
@@ -439,8 +440,23 @@ public final class RecursiveDescentParser {
         expectSymbol(";");
     }
 
-    /** Arguments follow the assignment rules: int and float widen to complex, int parameters check precision at run time. */
-    private String parseUserCall(String name) {
+    /** {@code go f(...);} runs the call in a new goroutine; its result, if any, is dropped. */
+    private void parseGo() {
+        readWord();
+        String name = expectIdentifier();
+        skipWhitespace();
+        if (!functions.containsKey(name) || !peekSymbol("(")) {
+            throw error("После 'go' ожидался вызов объявленной функции");
+        }
+        parseUserCall(name, true);
+        expectSymbol(";");
+    }
+
+    /**
+     * Arguments follow the assignment rules: int and float widen to complex, int parameters check precision at run time.
+     * With {@code go} the call is preceded by GO with the argument count, so the VM moves them to the new goroutine.
+     */
+    private String parseUserCall(String name, boolean go) {
         Signature function = functions.get(name);
         expectSymbol("(");
         int count = 0;
@@ -459,6 +475,9 @@ public final class RecursiveDescentParser {
         }
         expectSymbol(")");
 
+        if (go) {
+            codegen.emit(Opcode.GO, count);
+        }
         Integer address = functionAddresses.get(name);
         int call = codegen.emitCallFunction(address == null ? -1 : address);
         if (address == null) {
@@ -708,7 +727,7 @@ public final class RecursiveDescentParser {
 
     private String parseFunctionCall(String name) {
         if (functions.containsKey(name)) {
-            String type = parseUserCall(name);
+            String type = parseUserCall(name, false);
             if (type.equals("void")) {
                 throw error("Функция '" + name + "' объявлена как void и не может быть частью выражения");
             }
@@ -879,7 +898,7 @@ public final class RecursiveDescentParser {
 
     private boolean isKeyword(String word) {
         return switch (word) {
-            case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return",
+            case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return", "go",
                     "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e",
                     "re", "im", "conj", "arg" -> true;
             default -> false;

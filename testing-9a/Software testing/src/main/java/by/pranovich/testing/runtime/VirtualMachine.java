@@ -14,6 +14,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntConsumer;
 
 /**
@@ -33,20 +36,39 @@ public final class VirtualMachine {
         }
     }
 
+    // Every goroutine is its own VirtualMachine: stack and frames (and the program counter) are its own.
     // Values are Double (int, float) or Complex; the parser guarantees which operations they meet.
     private final Deque<Object> stack = new ArrayDeque<>();
-    // Global (top-level) memory; locals of the running function are in frames.peek().
-    private final Map<String, Object> variables = new HashMap<>();
-    private final Map<String, Object[]> arrays = new HashMap<>();
     private final Deque<Frame> frames = new ArrayDeque<>();
+    // Shared by all goroutines of a run: global (top-level) memory, output, started goroutines, first failure.
+    // Element writes to a shared array are not synchronized: a data race is the program's own, as in Go.
+    private final Map<String, Object> variables;
+    private final Map<String, Object[]> arrays;
     private final PrintStream out;
+    private final List<Thread> goroutines;
+    private final AtomicReference<RuntimeException> goroutineError;
 
     public VirtualMachine() {
         this(System.out);
     }
 
     public VirtualMachine(PrintStream out) {
+        this(out, new ConcurrentHashMap<>(), new ConcurrentHashMap<>(),
+                new CopyOnWriteArrayList<>(), new AtomicReference<>());
+    }
+
+    /** A goroutine of {@code parent}: fresh stack and frames, shared memory. */
+    private VirtualMachine(VirtualMachine parent) {
+        this(parent.out, parent.variables, parent.arrays, parent.goroutines, parent.goroutineError);
+    }
+
+    private VirtualMachine(PrintStream out, Map<String, Object> variables, Map<String, Object[]> arrays,
+                           List<Thread> goroutines, AtomicReference<RuntimeException> goroutineError) {
         this.out = out;
+        this.variables = variables;
+        this.arrays = arrays;
+        this.goroutines = goroutines;
+        this.goroutineError = goroutineError;
     }
 
     public void run(Program program) {
@@ -54,11 +76,17 @@ public final class VirtualMachine {
     }
 
     /** Runs the program, calling {@code beforeStep} with the program counter before every instruction. */
+    /**
+     * Unlike Go, the run ends only when every goroutine has finished; the first goroutine failure
+     * is then rethrown, unless the main code failed first.
+     */
     public void run(Program program, IntConsumer beforeStep) {
         resetMemory();
-        List<Instruction> code = program.instructions();
-        int programCounter = 0;
+        execute(program.instructions(), 0, beforeStep);
+        awaitGoroutines();
+    }
 
+    private void execute(List<Instruction> code, int programCounter, IntConsumer beforeStep) {
         while (programCounter < code.size()) {
             beforeStep.accept(programCounter);
             Instruction instruction = code.get(programCounter);
@@ -104,6 +132,7 @@ public final class VirtualMachine {
                 case NO_RETURN -> throw new IllegalStateException(
                         "Функция '" + instruction.operand() + "' завершилась без return");
                 case POP -> stack.pop();
+                case GO -> programCounter = startGoroutine(code, programCounter, (Integer) instruction.operand());
                 case HALT -> {
                     return;
                 }
@@ -117,6 +146,47 @@ public final class VirtualMachine {
         variables.clear();
         arrays.clear();
         frames.clear();
+        goroutines.clear();
+        goroutineError.set(null);
+    }
+
+    /**
+     * GO is followed by the CALL_FUN of the function: its arguments move to the stack of a new goroutine,
+     * which runs the call in a platform thread and ends when the function returns past the end of the code.
+     * Returns the index of that CALL_FUN, so that the caller goes on after it.
+     */
+    private int startGoroutine(List<Instruction> code, int programCounter, int argumentCount) {
+        int call = programCounter + 1;
+        int entry = (Integer) code.get(call).operand();
+        VirtualMachine goroutine = new VirtualMachine(this);
+        for (Object argument : popArguments(argumentCount)) {
+            goroutine.stack.push(argument);
+        }
+        goroutine.frames.push(new Frame(code.size(), (List<?>) code.get(entry).operand()));
+        goroutines.add(Thread.ofPlatform().daemon().name("go-" + goroutines.size()).start(() -> {
+            try {
+                goroutine.execute(code, entry, _ -> { });
+            } catch (RuntimeException exception) {
+                goroutineError.compareAndSet(null, exception);
+            }
+        }));
+        return call;
+    }
+
+    /** Goroutines may start goroutines, so the list can grow while it is being joined. */
+    private void awaitGoroutines() {
+        try {
+            for (int index = 0; index < goroutines.size(); index++) {
+                goroutines.get(index).join();
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Выполнение прервано во время ожидания горутин", exception);
+        }
+        RuntimeException failure = goroutineError.get();
+        if (failure != null) {
+            throw failure;
+        }
     }
 
     /** CALL_FUN points at the ENTER of the function, whose operand lists the locals of the new frame. */
