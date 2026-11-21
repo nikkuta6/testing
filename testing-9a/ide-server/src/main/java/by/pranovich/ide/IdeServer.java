@@ -68,6 +68,7 @@ public final class IdeServer {
         String resource = switch (path) {
             case "/" -> "/static/index.html";
             case "/mandelbrot.mjs" -> "/static/mandelbrot.mjs";
+            case "/mandelbrot-worker.mjs" -> "/static/mandelbrot-worker.mjs";
             default -> null;
         };
         if (resource == null) {

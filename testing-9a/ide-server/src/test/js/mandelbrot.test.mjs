@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeOrbit, escapeIterations, pixelToComplex, complexToPixel, PLANE } from '../../main/resources/static/mandelbrot.mjs';
+import { computeOrbit, escapeIterations, pixelToComplex, complexToPixel, PLANE,
+  zoomPlane, zoomLevel, iterationLimit, sampleEscape, escapeColor, renderRows, MAX_ZOOM
+} from '../../main/resources/static/mandelbrot.mjs';
 
 test('orbit starts at C, follows z² + C and includes the first escaping point', () => {
   assert.deepEqual(computeOrbit(1, 0), {
@@ -71,4 +73,74 @@ test('invalid iteration counts and non-finite C are rejected', () => {
   }
   assert.throws(() => computeOrbit(Infinity, 0), RangeError);
   assert.throws(() => computeOrbit(0, NaN), RangeError);
+});
+
+test('zoom preserves the complex coordinate under the pointer and equal axis scales', () => {
+  const anchor = pixelToComplex(213, 150, 640, 480);
+  const plane = zoomPlane(PLANE, anchor, 8);
+  const after = pixelToComplex(213, 150, 640, 480, plane);
+  assert.ok(Math.abs(after.re - anchor.re) < 1e-14);
+  assert.ok(Math.abs(after.im - anchor.im) < 1e-14);
+  assert.ok(Math.abs(zoomLevel(plane) - 8) < 1e-12);
+  assert.ok(Math.abs((plane.right - plane.left) / (plane.top - plane.bottom) - 4 / 3) < 1e-12);
+  const pixel = complexToPixel(anchor.re, anchor.im, 640, 480, plane);
+  assert.ok(Math.abs(pixel.x - 213) < 1e-10);
+  assert.ok(Math.abs(pixel.y - 150) < 1e-10);
+});
+
+test('zoom-out restores the original view and invalid zoom factors are rejected', () => {
+  const anchor = { re: -0.75, im: 0.1 };
+  const plane = zoomPlane(PLANE, anchor, 16);
+  assert.deepEqual(zoomPlane(plane, anchor, 1 / 32), PLANE);
+  for (const factor of [0, -1, Infinity, NaN]) assert.throws(() => zoomPlane(PLANE, anchor, factor), RangeError);
+});
+
+test('deep zoom adds iterations and keeps adjacent pixels numerically distinct', () => {
+  const anchor = { re: -0.743643887037151, im: 0.13182590420533 };
+  const deep = zoomPlane(PLANE, anchor, 1e20);
+  assert.ok(Math.abs(zoomLevel(deep) / MAX_ZOOM - 1) < 0.001);
+  assert.ok(iterationLimit(deep) > iterationLimit(PLANE));
+  assert.ok(iterationLimit(deep) <= 6000);
+  assert.notEqual(pixelToComplex(320, 240, 640, 480, deep).re, pixelToComplex(321, 240, 640, 480, deep).re);
+  assert.notEqual(pixelToComplex(320, 240, 640, 480, deep).im, pixelToComplex(320, 241, 640, 480, deep).im);
+  let last = 0;
+  for (const zoom of [1, 2, 16, 1024, 1e6, 1e12]) {
+    const limit = iterationLimit(zoomPlane(PLANE, anchor, zoom));
+    assert.ok(limit >= last);
+    last = limit;
+  }
+});
+
+test('escape colors distinguish outside points and retain variation at late escape times', () => {
+  assert.deepEqual(escapeColor(sampleEscape(0, 0)), [10, 12, 20]);
+  assert.notDeepEqual(escapeColor(sampleEscape(1, 0)), escapeColor(sampleEscape(3, 0)));
+  assert.notDeepEqual(escapeColor({ iterations: 100, smooth: 100 }), escapeColor({ iterations: 200, smooth: 200 }));
+  const a = sampleEscape(3, 0), b = sampleEscape(3.00000001, 0);
+  assert.notEqual(a.smooth, b.smooth);
+  assert.ok(Math.abs(a.smooth - b.smooth) < 1e-6);
+  for (const channel of escapeColor(a)) assert.ok(Number.isInteger(channel) && channel >= 0 && channel <= 255);
+});
+
+test('a new viewport is sampled again and row chunks produce the same raster', () => {
+  const plane = { left: 0, right: 2, top: 2, bottom: -2 };
+  const pixels = new Uint8ClampedArray(4 * 4 * 4);
+  renderRows(pixels, 4, 4, 0, 4, plane, 50);
+  assert.deepEqual(Array.from(pixels.slice(32, 36)), [10, 12, 20, 255]); // C = 0
+  assert.deepEqual(Array.from(pixels.slice(40, 44)), [...escapeColor(sampleEscape(1, 0, 50)), 255]); // C = 1
+  const chunks = new Uint8ClampedArray(pixels.length);
+  renderRows(chunks, 4, 4, 0, 2, plane, 50);
+  renderRows(chunks, 4, 4, 2, 4, plane, 50);
+  assert.deepEqual(chunks, pixels);
+  const other = new Uint8ClampedArray(pixels.length);
+  renderRows(other, 4, 4, 0, 4, zoomPlane(plane, { re: 0.5, im: 0 }, 4), 150);
+  assert.notDeepEqual(other, pixels);
+});
+
+test('interior shortcuts agree with direct iteration throughout the overview', () => {
+  for (let re = -2; re <= 1; re += 0.2) {
+    for (let im = -1; im <= 1; im += 0.2) {
+      const expected = computeOrbit(re, im, 200);
+      assert.equal(escapeIterations(re, im, 200), expected.escaped ? expected.points.length : 0);
+    }
+  }
 });

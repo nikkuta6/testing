@@ -226,6 +226,8 @@ h3:first-of-type {
 #mandelbrot-controls { padding: 6px 8px; background: #252526; color: #d4d4d4; font-size: 12px; flex-shrink: 0; }
 #mandelbrot-controls input { width: 64px; color: #ffffff; background: #1e1e1e; border: 1px solid #555; padding: 2px 4px; }
 #mandelbrot-status { margin: 4px 0 0; color: #ffcf40; overflow-wrap: anywhere; }
+#mandelbrot-viewport { margin: 4px 0 0; font-size: 11px; overflow-wrap: anywhere; }
+.mandelbrot-mode #graphics-canvas { touch-action: none; }
 
 .gutter.gutter-vertical {
   background-color: transparent; 
@@ -380,6 +382,10 @@ h3:first-of-type {
         <div id="mandelbrot-controls" hidden>
           <label>Шагов орбиты: <input id="mandelbrot-steps" type="number" min="1" max="1000" step="1" value="80" required></label>
           <span>z₀ = 0, zₙ₊₁ = zₙ² + C</span>
+          <button type="button" class="header-btn" id="mandelbrot-zoom-in" title="Увеличить в 2 раза">+</button>
+          <button type="button" class="header-btn" id="mandelbrot-zoom-out" title="Уменьшить в 2 раза">−</button>
+          <button type="button" class="header-btn" id="mandelbrot-reset-view">Сбросить вид</button>
+          <p id="mandelbrot-viewport"></p>
           <p id="mandelbrot-status" role="status" aria-live="polite"></p>
         </div>
         <div class="window-body graphics-body">
