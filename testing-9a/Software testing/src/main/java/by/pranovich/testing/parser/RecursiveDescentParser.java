@@ -3,13 +3,15 @@ package by.pranovich.testing.parser;
 import by.pranovich.testing.bytecode.CodeGenerator;
 import by.pranovich.testing.bytecode.Opcode;
 import by.pranovich.testing.bytecode.Program;
-import by.pranovich.testing.bytecode.UserFunctionCall;
+import by.pranovich.testing.runtime.VirtualMachine;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * One-pass recursive-descent parser. It validates source code and emits
@@ -21,11 +23,21 @@ public final class RecursiveDescentParser {
     private final CodeGenerator codegen = new CodeGenerator();
     private final Map<String, String> variables = new HashMap<>();
     private final Map<String, String> arrays = new HashMap<>();
-    private final Map<String, UserFunctionDefinition> functions = new HashMap<>();
     private boolean declarationsRequired = false;
-    private UserFunctionDefinition currentFunction;
-    private int blockDepth = 0;
     private int pos = 0;
+
+    // Signatures are collected before the main pass, so a function can be called above its declaration.
+    private final Map<String, Signature> functions = new HashMap<>();
+    private final Map<String, Integer> functionAddresses = new HashMap<>();
+    private final Map<String, List<Integer>> pendingCalls = new HashMap<>();
+    private final Set<String> locals = new LinkedHashSet<>();
+    private Signature currentFunction;
+    private int functionStart;
+    private int nesting;
+
+    private record Signature(String name, String returnType, List<String> parameterNames,
+                            List<String> parameterTypes) {
+    }
 
     public RecursiveDescentParser(String input) {
         this.input = Objects.requireNonNull(input, "input");
@@ -38,11 +50,9 @@ public final class RecursiveDescentParser {
         codegen.reset();
         variables.clear();
         arrays.clear();
-        functions.clear();
         declarationsRequired = true;
-        currentFunction = null;
-        blockDepth = 0;
-        pos = 0;
+        resetFunctions();
+        collectFunctionSignatures();
 
         while (!isEndOfInput()) {
             parseStatement();
@@ -58,10 +68,8 @@ public final class RecursiveDescentParser {
         codegen.reset();
         variables.clear();
         arrays.clear();
-        functions.clear();
         declarationsRequired = false;
-        currentFunction = null;
-        blockDepth = 0;
+        resetFunctions();
         pos = 0;
 
         parseExpression();
@@ -85,25 +93,19 @@ public final class RecursiveDescentParser {
         codegen.setSourcePosition(pos);
         String word = peekWord();
         switch (word) {
-            case "int", "float" -> parseDeclaration();
-            case "func" -> parseTypedFunctionDeclaration();
-            case "return" -> parseReturn();
+            case "int", "float", "complex" -> parseDeclaration();
             case "if" -> parseIf();
             case "while" -> parseWhile();
             case "print" -> parsePrint();
+            case "fun" -> parseFunction();
+            case "return" -> parseReturn();
             case "else" -> throw error("'else' без предшествующего 'if'");
             default -> {
                 char c = input.charAt(pos);
                 if (c == '{') {
                     parseBlock();
                 } else if (isIdentifierStart(c)) {
-                    if (looksLikeFunctionDeclaration()) {
-                        parseUserFunctionDeclaration();
-                    } else if (looksLikeFunctionCall()) {
-                        parseUserFunctionCall();
-                    } else {
-                        parseAssignment();
-                    }
+                    parseAssignment();
                 } else {
                     throw error("Ожидалось начало инструкции, но найдено: '"
                             + currentSymbol() + "'");
@@ -121,49 +123,49 @@ public final class RecursiveDescentParser {
             skipWhitespace();
 
             if (matchSymbol("[")) {
-                arrays.put(name, type);
+                declare(arrays, name, type);
                 boolean explicitSize = !peekSymbol("]");
                 if (explicitSize) {
-                    parseExpression();
+                    requireReal(parseExpression(), "Размер массива");
                 }
                 expectSymbol("]");
 
                 if (peekAssignmentEquals()) {
                     pos++;
-                    int count = parseArrayInitializer();
-                    codegen.emitArrayInit(name, count, explicitSize);
+                    int count = parseArrayInitializer(type);
+                    codegen.emitArrayInit(name, count, explicitSize, type);
                 } else if (explicitSize) {
-                    codegen.emitArrayNew(name);
+                    codegen.emitArrayNew(name, type);
                 } else {
                     throw error("Для массива без размера ожидался инициализатор '[...]'");
                 }
             } else if (peekAssignmentEquals()) {
                 pos++;
                 if (peekSymbol("[")) {
-                    arrays.put(name, type);
-                    int count = parseArrayInitializer();
-                    codegen.emitArrayInit(name, count, false);
+                    declare(arrays, name, type);
+                    int count = parseArrayInitializer(type);
+                    codegen.emitArrayInit(name, count, false, type);
                 } else {
-                    variables.put(name, type);
-                    parseExpression();
-                    codegen.emitStore(name);
+                    declare(variables, name, type);
+                    requireAssignable(type, parseExpression());
+                    codegen.emitStore(name, type);
                 }
             } else {
-                variables.put(name, type);
+                declare(variables, name, type);
                 codegen.emitPush(0.0);
-                codegen.emitStore(name);
+                codegen.emitStore(name, type);
             }
             skipWhitespace();
         } while (matchSymbol(","));
         expectSymbol(";");
     }
 
-    private int parseArrayInitializer() {
+    private int parseArrayInitializer(String type) {
         expectSymbol("[");
         int count = 0;
         if (!peekSymbol("]")) {
             do {
-                parseExpression();
+                requireAssignable(type, parseExpression());
                 count++;
             } while (matchSymbol(","));
         }
@@ -175,18 +177,26 @@ public final class RecursiveDescentParser {
         String name = expectIdentifier();
         skipWhitespace();
 
-        if (matchSymbol("[")) {
+        if (peekSymbol("(") && !functions.containsKey(name)) {
+            throw error("Функция '" + name + "' не объявлена");
+        }
+        if (functions.containsKey(name) && peekSymbol("(")) {
+            // A call statement discards the result.
+            if (!parseUserCall(name).equals("void")) {
+                codegen.emit(Opcode.POP);
+            }
+        } else if (matchSymbol("[")) {
             if (declarationsRequired && !arrays.containsKey(name)) {
                 throw error("Массив '" + name + "' не объявлен");
             }
-            parseExpression();
+            requireReal(parseExpression(), "Индекс массива");
             expectSymbol("]");
             if (!peekAssignmentEquals()) {
                 throw error("Ожидался оператор '=' после элемента массива '" + name + "'");
             }
             pos++;
-            parseExpression();
-            codegen.emitArrayStore(name);
+            requireAssignable(arrays.get(name), parseExpression());
+            codegen.emitArrayStore(name, arrays.get(name));
         } else {
             if (declarationsRequired && !variables.containsKey(name)) {
                 if (arrays.containsKey(name)) {
@@ -198,167 +208,15 @@ public final class RecursiveDescentParser {
                 throw error("Ожидался оператор '=' после '" + name + "'");
             }
             pos++;
-            parseExpression();
-            codegen.emitStore(name);
+            requireAssignable(variables.get(name), parseExpression());
+            codegen.emitStore(name, variables.get(name));
         }
         expectSymbol(";");
-    }
-
-    /** Declares a typed function: {@code func name(int a, float b) { return a + b; }}. */
-    private void parseTypedFunctionDeclaration() {
-        readWord();
-        String name = expectIdentifier();
-        expectSymbol("(");
-
-        List<UserParameter> parameters = new ArrayList<>();
-        if (!peekSymbol(")")) {
-            do {
-                String type = readWord();
-                if (!type.equals("int") && !type.equals("float")) {
-                    throw error("Ожидался тип параметра 'int' или 'float', но найдено: '"
-                            + type + "'");
-                }
-                addParameter(parameters, new UserParameter(type, expectIdentifier()));
-            } while (matchSymbol(","));
-        }
-        expectSymbol(")");
-        parseUserFunctionBody(name, parameters);
-    }
-
-    /** Legacy procedure syntax: {@code name(arg1, arg2) { ... }}. */
-    private void parseUserFunctionDeclaration() {
-        String name = expectIdentifier();
-        expectSymbol("(");
-
-        List<UserParameter> parameters = new ArrayList<>();
-        if (!peekSymbol(")")) {
-            do {
-                addParameter(parameters, new UserParameter("float", expectIdentifier()));
-            } while (matchSymbol(","));
-        }
-        expectSymbol(")");
-        parseUserFunctionBody(name, parameters);
-    }
-
-    private void addParameter(List<UserParameter> parameters, UserParameter parameter) {
-        if (parameters.stream().anyMatch(existing -> existing.name().equals(parameter.name()))) {
-            throw error("Параметр '" + parameter.name() + "' указан дважды");
-        }
-        parameters.add(parameter);
-    }
-
-    private void parseUserFunctionBody(String name, List<UserParameter> parameters) {
-        if (currentFunction != null || blockDepth != 0) {
-            throw error("Функции можно объявлять только на верхнем уровне программы");
-        }
-        ensureNameIsFree(name);
-
-        int skipBody = codegen.emitJumpPlaceholder(Opcode.JMP);
-        UserFunctionDefinition function = new UserFunctionDefinition(name, codegen.size(), parameters);
-        functions.put(name, function);
-
-        Map<String, String> outerVariables = new HashMap<>(variables);
-        Map<String, String> outerArrays = new HashMap<>(arrays);
-        variables.clear();
-        arrays.clear();
-        for (UserParameter parameter : parameters) {
-            variables.put(parameter.name(), parameter.type());
-        }
-
-        currentFunction = function;
-        parseBlock();
-        if (function.returnType == null) {
-            codegen.emit(Opcode.RETURN, false);
-        } else {
-            // The VM reports a missing value if an executed path reaches the closing brace.
-            codegen.emit(Opcode.RETURN, true);
-        }
-        currentFunction = null;
-
-        variables.clear();
-        variables.putAll(outerVariables);
-        arrays.clear();
-        arrays.putAll(outerArrays);
-        codegen.patchJump(skipBody, codegen.size());
-    }
-
-    private void parseReturn() {
-        readWord();
-        if (currentFunction == null) {
-            throw error("'return' допустим только внутри функции");
-        }
-        String type = parseExpression();
-        currentFunction.returnType = currentFunction.returnType == null
-                ? type
-                : numericResultType(currentFunction.returnType, type);
-        codegen.emit(Opcode.RETURN, true);
-        expectSymbol(";");
-    }
-
-    /** Calls a previously declared function and discards its result when used as a statement. */
-    private void parseUserFunctionCall() {
-        String name = expectIdentifier();
-        UserFunctionDefinition function = functions.get(name);
-        if (function == null) {
-            throw error("Функция '" + name + "' не объявлена");
-        }
-        parseUserFunctionArguments(function);
-        codegen.emitUserCall(function.callOperand());
-        if (function.returnType != null) {
-            codegen.emit(Opcode.POP);
-        }
-        expectSymbol(";");
-    }
-
-    private List<String> parseUserFunctionArguments(UserFunctionDefinition function) {
-        expectSymbol("(");
-        List<String> argumentTypes = new ArrayList<>();
-        if (!peekSymbol(")")) {
-            do {
-                argumentTypes.add(parseExpression());
-            } while (matchSymbol(","));
-        }
-        expectSymbol(")");
-        if (argumentTypes.size() != function.parameters.size()) {
-            throw error("Функция '" + function.name + "' принимает " + function.parameters.size()
-                    + " аргумент(а), передано " + argumentTypes.size());
-        }
-        return argumentTypes;
-    }
-
-    private boolean looksLikeFunctionDeclaration() {
-        int start = pos;
-        readWord();
-        if (!matchSymbol("(")) {
-            pos = start;
-            return false;
-        }
-
-        boolean validParameters = true;
-        if (!peekSymbol(")")) {
-            do {
-                if (readWord().isEmpty()) {
-                    validParameters = false;
-                    break;
-                }
-            } while (matchSymbol(","));
-        }
-        boolean result = validParameters && matchSymbol(")") && peekSymbol("{");
-        pos = start;
-        return result;
-    }
-
-    private boolean looksLikeFunctionCall() {
-        int start = pos;
-        readWord();
-        boolean result = peekSymbol("(");
-        pos = start;
-        return result;
     }
 
     private void parseIf() {
         readWord();
-        parseExpression();
+        requireReal(parseExpression(), "Условие 'if'");
 
         int jzIdx = codegen.emitJumpPlaceholder(Opcode.JZ);
         parseBlock();
@@ -386,7 +244,7 @@ public final class RecursiveDescentParser {
         readWord();
         int loopStart = codegen.size();
 
-        parseExpression();
+        requireReal(parseExpression(), "Условие 'while'");
         int jzIdx = codegen.emitJumpPlaceholder(Opcode.JZ);
         parseBlock();
 
@@ -427,7 +285,7 @@ public final class RecursiveDescentParser {
 
     private void parseBlock() {
         expectSymbol("{");
-        blockDepth++;
+        nesting++;
         while (true) {
             skipWhitespace();
             if (isEndOfInput()) {
@@ -435,11 +293,178 @@ public final class RecursiveDescentParser {
             }
             if (input.charAt(pos) == '}') {
                 pos++;
-                blockDepth--;
+                nesting--;
                 return;
             }
             parseStatement();
         }
+    }
+
+    // ==================== Functions ====================
+
+    private void resetFunctions() {
+        functions.clear();
+        functionAddresses.clear();
+        pendingCalls.clear();
+        locals.clear();
+        currentFunction = null;
+        nesting = 0;
+    }
+
+    /** Pre-pass over the text: only {@code fun} headers are read, their errors are left to the main pass. */
+    private void collectFunctionSignatures() {
+        pos = 0;
+        try {
+            while (true) {
+                skipWhitespace();
+                if (isEndOfInput()) {
+                    break;
+                }
+                if (!isIdentifierStart(input.charAt(pos))) {
+                    pos++;
+                    continue;
+                }
+                int start = pos;
+                if (readWord().equals("fun")) {
+                    pos = start;
+                    try {
+                        Signature signature = parseFunctionHeader();
+                        functions.putIfAbsent(signature.name(), signature);
+                    } catch (ParseException ignored) {
+                        // reported by the main pass
+                    }
+                }
+            }
+        } catch (ParseException ignored) {
+            // an unclosed comment is reported by the main pass
+        }
+        pos = 0;
+    }
+
+    private Signature parseFunctionHeader() {
+        readWord();
+        String returnType = readWord();
+        if (!List.of("int", "float", "complex", "void").contains(returnType)) {
+            throw error("Ожидался тип результата функции (int, float, complex или void), но найдено: '"
+                    + returnType + "'");
+        }
+        String name = expectIdentifier();
+        expectSymbol("(");
+        List<String> names = new ArrayList<>();
+        List<String> types = new ArrayList<>();
+        if (!peekSymbol(")")) {
+            do {
+                String type = readWord();
+                if (!List.of("int", "float", "complex").contains(type)) {
+                    throw error("Ожидался тип параметра (int, float или complex), но найдено: '" + type + "'");
+                }
+                String parameter = expectIdentifier();
+                if (names.contains(parameter)) {
+                    throw error("Параметр '" + parameter + "' уже объявлен");
+                }
+                names.add(parameter);
+                types.add(type);
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+        return new Signature(name, returnType, List.copyOf(names), List.copyOf(types));
+    }
+
+    /**
+     * Top-level code jumps over the body. ENTER lists the locals of the call frame; then the
+     * arguments are stored into the parameters, the last one being on top of the stack.
+     */
+    private void parseFunction() {
+        if (nesting > 0) {
+            throw error("Функцию можно объявить только на верхнем уровне программы");
+        }
+        int start = pos;
+        Signature function = parseFunctionHeader();
+        if (functionAddresses.containsKey(function.name())) {
+            pos = start;
+            throw error("Функция '" + function.name() + "' уже объявлена");
+        }
+
+        int skip = codegen.emitJumpPlaceholder(Opcode.JMP);
+        int entry = codegen.emitJumpPlaceholder(Opcode.ENTER);
+        functionAddresses.put(function.name(), entry);
+        for (int call : pendingCalls.getOrDefault(function.name(), List.of())) {
+            codegen.patchJump(call, entry);
+        }
+        pendingCalls.remove(function.name());
+
+        Map<String, String> globalVariables = new HashMap<>(variables);
+        Map<String, String> globalArrays = new HashMap<>(arrays);
+        currentFunction = function;
+        functionStart = entry + 1;
+        for (int index = 0; index < function.parameterNames().size(); index++) {
+            declare(variables, function.parameterNames().get(index), function.parameterTypes().get(index));
+        }
+        for (int index = function.parameterNames().size() - 1; index >= 0; index--) {
+            codegen.emitStore(function.parameterNames().get(index), function.parameterTypes().get(index));
+        }
+
+        parseBlock();
+        if (function.returnType().equals("void")) {
+            codegen.emit(Opcode.RET, "void");
+        } else {
+            codegen.emit(Opcode.NO_RETURN, function.name());
+        }
+        codegen.patchOperand(entry, List.copyOf(locals));
+        codegen.patchJump(skip, codegen.size());
+
+        currentFunction = null;
+        locals.clear();
+        variables.clear();
+        variables.putAll(globalVariables);
+        arrays.clear();
+        arrays.putAll(globalArrays);
+    }
+
+    private void parseReturn() {
+        readWord();
+        if (currentFunction == null) {
+            throw error("'return' вне функции");
+        }
+        String returnType = currentFunction.returnType();
+        if (returnType.equals("void") != peekSymbol(";")) {
+            throw error(returnType.equals("void")
+                    ? "Функция '" + currentFunction.name() + "' объявлена как void и не возвращает значение"
+                    : "Функция '" + currentFunction.name() + "' должна вернуть значение " + returnType);
+        }
+        if (!returnType.equals("void")) {
+            requireAssignable(returnType, parseExpression());
+        }
+        codegen.emit(Opcode.RET, returnType);
+        expectSymbol(";");
+    }
+
+    /** Arguments follow the assignment rules: int and float widen to complex, int parameters check precision at run time. */
+    private String parseUserCall(String name) {
+        Signature function = functions.get(name);
+        expectSymbol("(");
+        int count = 0;
+        if (!peekSymbol(")")) {
+            do {
+                String type = parseExpression();
+                if (count < function.parameterTypes().size()) {
+                    requireAssignable(function.parameterTypes().get(count), type);
+                }
+                count++;
+            } while (matchSymbol(","));
+        }
+        if (count != function.parameterTypes().size()) {
+            throw error("Функция '" + name + "' принимает аргументов: " + function.parameterTypes().size()
+                    + ", передано: " + count);
+        }
+        expectSymbol(")");
+
+        Integer address = functionAddresses.get(name);
+        int call = codegen.emitCallFunction(address == null ? -1 : address);
+        if (address == null) {
+            pendingCalls.computeIfAbsent(name, key -> new ArrayList<>()).add(call);
+        }
+        return function.returnType();
     }
 
     // ==================== Expressions ====================
@@ -451,7 +476,8 @@ public final class RecursiveDescentParser {
     private String parseOr() {
         String type = parseAnd();
         while (matchSymbol("||")) {
-            parseAnd();
+            requireReal(type, "Оператор '||'");
+            requireReal(parseAnd(), "Оператор '||'");
             codegen.emitBinary("||");
             type = "int";
         }
@@ -461,7 +487,8 @@ public final class RecursiveDescentParser {
     private String parseAnd() {
         String type = parseEquality();
         while (matchSymbol("&&")) {
-            parseEquality();
+            requireReal(type, "Оператор '&&'");
+            requireReal(parseEquality(), "Оператор '&&'");
             codegen.emitBinary("&&");
             type = "int";
         }
@@ -527,7 +554,8 @@ public final class RecursiveDescentParser {
             } else {
                 break;
             }
-            parseAdditive();
+            requireReal(type, "Оператор '" + operator + "'");
+            requireReal(parseAdditive(), "Оператор '" + operator + "'");
             codegen.emitBinary(operator);
             type = "int";
         }
@@ -545,9 +573,8 @@ public final class RecursiveDescentParser {
             } else {
                 break;
             }
-            String right = parseMultiplicative();
-            codegen.emitBinary(operator);
-            type = numericResultType(type, right);
+            type = numericResultType(type, parseMultiplicative());
+            codegen.emitBinary(operator, type);
         }
         return type;
     }
@@ -563,9 +590,8 @@ public final class RecursiveDescentParser {
             } else {
                 break;
             }
-            String right = parseUnary();
-            codegen.emitBinary(operator);
-            type = numericResultType(type, right);
+            type = numericResultType(type, parseUnary());
+            codegen.emitBinary(operator, type);
         }
         return type;
     }
@@ -584,7 +610,7 @@ public final class RecursiveDescentParser {
         } else if (current == '-') {
             pos++;
             String type = parsePower();
-            codegen.emit(Opcode.NEG);
+            codegen.emit(Opcode.NEG, type);
             return type;
         } else if (current == '!' && !isNotEqualsOperator()) {
             pos++;
@@ -593,7 +619,7 @@ public final class RecursiveDescentParser {
                 throw error("После '!' ожидалось имя или выражение в скобках, но найдено: '"
                         + currentSymbol() + "'");
             }
-            parseOperand();
+            requireReal(parseOperand(), "Оператор '!'");
             codegen.emit(Opcode.NOT);
             return parsePowerTail("int");
         }
@@ -612,9 +638,9 @@ public final class RecursiveDescentParser {
         if (!matchSymbol("^")) {
             return baseType;
         }
-        String exponentType = parseUnary();
-        codegen.emitBinary("^");
-        return numericResultType(baseType, exponentType);
+        String type = numericResultType(baseType, parseUnary());
+        codegen.emitBinary("^", type);
+        return type;
     }
 
     private String parseOperand() {
@@ -638,7 +664,7 @@ public final class RecursiveDescentParser {
                     throw error("Массив '" + name + "' не объявлен");
                 }
                 type = arrays.get(name);
-                parseExpression();
+                requireReal(parseExpression(), "Индекс массива");
                 expectSymbol("]");
                 codegen.emitArrayLoad(name);
             } else {
@@ -654,32 +680,40 @@ public final class RecursiveDescentParser {
         } else if (isNumberStart()) {
             int start = pos;
             double value = parseNumber();
-            type = isFloatLiteral(input.substring(start, pos)) ? "float" : "int";
-            codegen.emitPush(value);
+            if (isImaginarySuffix()) {
+                pos++;
+                type = "complex";
+                codegen.emitPushImaginary(value);
+            } else {
+                type = isFloatLiteral(input.substring(start, pos)) ? "float" : "int";
+                if (type.equals("int") && value > VirtualMachine.MAX_EXACT_INT) {
+                    pos = start;
+                    throw error("Переполнение int: литерал больше 2^53 - 1");
+                }
+                codegen.emitPush(value);
+            }
         } else {
             throw error("Ожидался операнд (имя, число или скобка), но найдено: '"
                     + currentSymbol() + "'");
         }
 
         while (isFactorial()) {
+            requireReal(type, "Факториал");
             pos++;
-            codegen.emit(Opcode.FACT);
-            type = "int";
+            // int! stays int (range-checked), float! stays float so 19.0! does not overflow int
+            codegen.emit(Opcode.FACT, type);
         }
         return type;
     }
 
     private String parseFunctionCall(String name) {
-        UserFunctionDefinition userFunction = functions.get(name);
-        if (userFunction != null) {
-            parseUserFunctionArguments(userFunction);
-            if (userFunction.returnType == null) {
-                throw error("Функция '" + name + "' не возвращает значение");
+        if (functions.containsKey(name)) {
+            String type = parseUserCall(name);
+            if (type.equals("void")) {
+                throw error("Функция '" + name + "' объявлена как void и не может быть частью выражения");
             }
-            codegen.emitUserCall(userFunction.callOperand());
-            return userFunction.returnType;
+            return type;
         }
-
         expectSymbol("(");
         List<String> argumentTypes = new ArrayList<>();
         if (!peekSymbol(")")) {
@@ -690,20 +724,23 @@ public final class RecursiveDescentParser {
         expectSymbol(")");
 
         validateFunction(name, argumentTypes.size());
+        if (!List.of("re", "im", "abs", "conj", "arg").contains(name)) {
+            argumentTypes.forEach(type -> requireReal(type, "Функция '" + name + "'"));
+        }
         codegen.emitCall(name, argumentTypes.size());
 
         if (name.equals("max") || name.equals("min")) {
             return argumentTypes.stream().anyMatch("float"::equals) ? "float" : "int";
         }
-        if (name.equals("abs")) {
+        if (name.equals("abs") && !"complex".equals(argumentTypes.getFirst())) {
             return argumentTypes.getFirst();
         }
-        return "float";
+        return name.equals("conj") ? "complex" : "float";
     }
 
     private void validateFunction(String name, int argumentCount) {
         switch (name) {
-            case "sin", "cos", "cod", "tg", "ctg", "abs" -> {
+            case "sin", "cos", "cod", "tg", "ctg", "abs", "re", "im", "conj", "arg" -> {
                 if (argumentCount != 1) {
                     throw error("Функция '" + name + "' принимает ровно один аргумент");
                 }
@@ -723,7 +760,30 @@ public final class RecursiveDescentParser {
     }
 
     private String numericResultType(String left, String right) {
+        if ("complex".equals(left) || "complex".equals(right)) {
+            return "complex";
+        }
         return "float".equals(left) || "float".equals(right) ? "float" : "int";
+    }
+
+    /** complex has no order and no truth value, so it is rejected where a real number is required. */
+    private void requireReal(String type, String context) {
+        if ("complex".equals(type)) {
+            throw error(context + ": значение complex недопустимо");
+        }
+    }
+
+    /** int and float widen to complex, but complex never narrows to int or float. */
+    private void requireAssignable(String target, String valueType) {
+        if ("complex".equals(valueType) && !"complex".equals(target) && target != null) {
+            throw error("Значение complex нельзя сохранить в " + target);
+        }
+    }
+
+    /** {@code 4i} is an imaginary literal; {@code 4 i} or {@code 4if} are not, so a variable {@code i} stays usable. */
+    private boolean isImaginarySuffix() {
+        return pos < input.length() && input.charAt(pos) == 'i'
+                && (pos + 1 >= input.length() || !isIdentifierPart(input.charAt(pos + 1)));
     }
 
     private boolean isFloatLiteral(String literal) {
@@ -747,7 +807,19 @@ public final class RecursiveDescentParser {
             while (!isEndOfInput() && Character.isDigit(input.charAt(pos))) pos++;
         }
 
-        return Double.parseDouble(input.substring(start, pos));
+        String literal = input.substring(start, pos);
+        double value;
+        try {
+            value = Double.parseDouble(literal);
+        } catch (NumberFormatException e) {
+            pos = start;
+            throw error("Некорректное число: " + literal);
+        }
+        if (Double.isInfinite(value)) {
+            pos = start;
+            throw error("Переполнение: число " + literal + " слишком велико");
+        }
+        return value;
     }
 
     // ==================== Helpers ====================
@@ -781,16 +853,35 @@ public final class RecursiveDescentParser {
         return word;
     }
 
+    /** Inside a function only locals count: a local may shadow a global of the same name. */
     private void ensureNameIsFree(String name) {
-        if (variables.containsKey(name) || arrays.containsKey(name) || functions.containsKey(name)) {
+        if (functions.containsKey(name)) {
+            throw error("Имя '" + name + "' уже объявлено как функция");
+        }
+        if (currentFunction == null ? variables.containsKey(name) || arrays.containsKey(name)
+                : locals.contains(name)) {
             throw error("Имя '" + name + "' уже объявлено");
         }
+        // The VM resolves a name in a frame by the list of locals, so an earlier global use would change meaning.
+        if (currentFunction != null && codegen.usesName(name, functionStart)) {
+            throw error("Имя '" + name + "' уже использовано в функции как глобальное");
+        }
+    }
+
+    private void declare(Map<String, String> names, String name, String type) {
+        if (currentFunction != null) {
+            locals.add(name);
+            variables.remove(name);
+            arrays.remove(name);
+        }
+        names.put(name, type);
     }
 
     private boolean isKeyword(String word) {
         return switch (word) {
-            case "int", "float", "func", "return", "if", "else", "while", "print",
-                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e" -> true;
+            case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return",
+                    "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e",
+                    "re", "im", "conj", "arg" -> true;
             default -> false;
         };
     }
@@ -888,26 +979,5 @@ public final class RecursiveDescentParser {
 
     private ParseException error(String message) {
         return new ParseException(message, pos);
-    }
-
-    private record UserParameter(String type, String name) {
-    }
-
-    private static final class UserFunctionDefinition {
-        private final String name;
-        private final int entryPoint;
-        private final List<UserParameter> parameters;
-        private String returnType;
-
-        private UserFunctionDefinition(String name, int entryPoint, List<UserParameter> parameters) {
-            this.name = name;
-            this.entryPoint = entryPoint;
-            this.parameters = List.copyOf(parameters);
-        }
-
-        private UserFunctionCall callOperand() {
-            return new UserFunctionCall(name, entryPoint,
-                    parameters.stream().map(UserParameter::name).toList());
-        }
     }
 }

@@ -16,7 +16,6 @@ import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -125,7 +124,7 @@ public final class IdeServer {
                 + ",\"output\":" + quote(output.toString(StandardCharsets.UTF_8))
                 + ",\"runtimeError\":" + (runtimeError == null ? "null" : quote(runtimeError))
                 // The VM is still running after a timeout, its maps cannot be read safely.
-                + ",\"variables\":" + (timedOut ? "{},\"stack\":[]" : memoryJson(vm))
+                + ",\"variables\":" + (timedOut ? "{},\"locals\":{},\"stack\":[]" : memoryJson(vm))
                 + (debug ? ",\"lines\":" + linesJson(source, compiler.getProgram())
                         + ",\"steps\":" + (timedOut ? "[]" : "[" + String.join(",", steps) + "]") : "")
                 + "}";
@@ -141,19 +140,21 @@ public final class IdeServer {
         return lines.toString();
     }
 
-    /** VirtualMachine keeps its memory private, so it is read reflectively after the run. */
+    /** VirtualMachine keeps its globals and stack private, so they are read reflectively; locals of the current call frame are public. */
     private static String memoryJson(VirtualMachine vm) {
-        Map<String, Double> variables = new TreeMap<>(IdeServer.<Map<String, Double>>readField(vm, "variables"));
-        Map<String, double[]> arrays = new TreeMap<>(IdeServer.<Map<String, double[]>>readField(vm, "arrays"));
-        Collection<Double> stack = readField(vm, "stack");
-
-        StringJoiner vars = new StringJoiner(",", "{", "}");
-        variables.forEach((name, value) -> vars.add(quote(name) + ":" + quote(String.valueOf(value))));
-        arrays.forEach((name, value) -> vars.add(quote(name) + ":" + quote(Arrays.toString(value))));
-
+        Collection<Object> stack = readField(vm, "stack");
         StringJoiner stackJson = new StringJoiner(",", "[", "]");
-        stack.forEach(value -> stackJson.add(quote(String.valueOf(value))));
-        return vars + ",\"stack\":" + stackJson;
+        stack.forEach(value -> stackJson.add(quote(VirtualMachine.formatValue(value))));
+        return scopeJson(readField(vm, "variables"), readField(vm, "arrays"))
+                + ",\"locals\":" + scopeJson(vm.localVariables(), vm.localArrays())
+                + ",\"stack\":" + stackJson;
+    }
+
+    private static String scopeJson(Map<String, Object> variables, Map<String, Object[]> arrays) {
+        StringJoiner json = new StringJoiner(",", "{", "}");
+        new TreeMap<>(variables).forEach((name, value) -> json.add(quote(name) + ":" + quote(VirtualMachine.formatValue(value))));
+        new TreeMap<>(arrays).forEach((name, value) -> json.add(quote(name) + ":" + quote(VirtualMachine.formatValue(value))));
+        return json.toString();
     }
 
     @SuppressWarnings("unchecked")

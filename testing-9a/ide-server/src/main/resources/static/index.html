@@ -320,7 +320,7 @@ h3:first-of-type {
           <div class="window-header">
             <span>Локальные переменные</span>
           </div>
-          <div class="window-content">В языке нет функций, все переменные глобальные.</div>
+          <pre class="window-content" id="locals-view" style="margin: 0;">(нет)</pre>
         </div>
 
         <!-- НОВОЕ ОКНО: СТЕК -->
@@ -558,10 +558,10 @@ function LangHighlightRules() {
     start: [
       { token: 'comment', regex: '//.*$' },
       { token: 'comment', regex: '/\\*', next: 'comment' },
-      { token: 'storage.type', regex: '\\b(?:int|float)\\b' },
-      { token: 'keyword.control', regex: '\\b(?:if|else|while)\\b' },
-      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|_pi|_e)\\b' },
-      { token: 'constant.numeric', regex: '(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?' },
+      { token: 'storage.type', regex: '\\b(?:int|float|complex|void)\\b' },
+      { token: 'keyword.control', regex: '\\b(?:if|else|while|fun|return)\\b' },
+      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|re|im|conj|arg|_pi|_e)\\b' },
+      { token: 'constant.numeric', regex: '(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?(?:i\\b)?' },
       { token: 'variable', regex: '[A-Za-z_\\u0400-\\u04FF][\\w\\u0400-\\u04FF]*' },
       { token: 'keyword.operator', regex: '<>|<=|>=|==|&&|\\|\\||[-+*/^!<>=]' },
       { token: 'paren.lparen', regex: '[\\[({]' },
@@ -593,11 +593,15 @@ if (typeof ace !== 'undefined') {
   editor.setValue(`float x = _pi() / 2, sum = 0;
 int i = 0;
 while (i < 10) {
-    sum = sum + (-1) ^ i * x ^ (2 * i + 1) / (2 * i + 1)!;
+    sum = sum + (-1) ^ i * x ^ (2 * i + 1) / (2 * i + 1.0)!;
     i = i + 1;
     print(i, sum, sin(x), sin(x) - sum);
 }
 print(sum);
+
+fun int fact(int n) { if n <= 1 { return 1; } return n * fact(n - 1); }
+complex z = 3 + 4i;
+print(fact(5), z * conj(z), abs(z));
 `, -1);
   editor.commands.addCommand({
     name: 'run',
@@ -820,10 +824,11 @@ async function requestRun(url) {
   return result;
 }
 
-function showMemory(variables, stack) {
+function showMemory(variables, stack, locals = {}) {
+  const lines = vars => Object.entries(vars).map(([name, value]) => name + ' = ' + value).join('\n');
   document.getElementById('stack-view').textContent = stack.length ? stack.join('\n') : '(пуст)';
-  document.getElementById('globals-view').textContent =
-    Object.entries(variables).map(([name, value]) => name + ' = ' + value).join('\n');
+  document.getElementById('globals-view').textContent = lines(variables);
+  document.getElementById('locals-view').textContent = lines(locals) || '(нет)';
 }
 
 function showOutput(text) {
@@ -851,7 +856,7 @@ window.runProgram = async function() {
   const result = await requestRun('/api/run');
   if (!result) return;
   showBytecode(result.bytecode);
-  showMemory(result.variables, result.stack);
+  showMemory(result.variables, result.stack, result.locals);
   showOutput(result.output);
   if (result.runtimeError) {
     window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
@@ -895,7 +900,7 @@ function debugGo(index) {
     const line = result.lines[step.pc];
     if (line) markLine(line, 'step');
     showBytecode(result.bytecode, step.pc);
-    showMemory(step.variables, step.stack);
+    showMemory(step.variables, step.stack, step.locals);
     showOutput(result.output.slice(0, step.out));
     document.getElementById('debug-status').textContent =
       `шаг ${debug.index + 1}/${steps.length}` + (line ? `, строка ${line}` : '');
@@ -907,7 +912,7 @@ function debugGo(index) {
   const failed = result.runtimeError && last;
   if (failed && result.lines[last.pc]) markLine(result.lines[last.pc], 'error');
   showBytecode(result.bytecode, failed ? last.pc : -1, 'bc-error');
-  showMemory(result.variables, result.stack);
+  showMemory(result.variables, result.stack, result.locals);
   showOutput(result.output);
   if (result.runtimeError) {
     window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });

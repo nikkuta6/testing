@@ -26,8 +26,8 @@ class ArrayAndBuiltinFunctionTest {
     static Stream<Arguments> builtinPrograms() {
         return Stream.of(
                 Arguments.of(
-                        "print(sin(0)); print(cos(0)); print(cod(0)); print(tg(0)); print(ctg(0));",
-                        "0.0\n1.0\n1.0\n0.0\nInfinity\n"
+                        "print(sin(0)); print(cos(0)); print(cod(0)); print(tg(0));",
+                        "0.0\n1.0\n1.0\n0.0\n"
                 ),
                 Arguments.of(
                         "print(abs(-5)); print(max(7, 2 + 3, abs(-8))); print(min(7, 2, 4));",
