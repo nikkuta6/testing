@@ -30,7 +30,7 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * HTTP API for the web IDE: serves the page and runs programs.
- * POST /api/run with the source as the body returns byte-code, output and VM memory as JSON.
+ * POST /api/run with the source as the body returns byte-code, output, canvas drawing commands and VM memory as JSON.
  * POST /api/debug additionally returns the source line of every instruction and a VM snapshot before every step.
  */
 public final class IdeServer {
@@ -104,7 +104,7 @@ public final class IdeServer {
             if (steps.size() == MAX_DEBUG_STEPS) {
                 throw new IllegalStateException("Пошаговый режим: показаны первые " + MAX_DEBUG_STEPS + " шагов");
             }
-            steps.add("{\"pc\":" + programCounter + ",\"out\":" + output.size() + ",\"variables\":" + memoryJson(vm) + "}");
+            steps.add("{\"pc\":" + programCounter + ",\"out\":" + output.size() + ",\"cv\":" + vm.canvas().size() + ",\"variables\":" + memoryJson(vm) + "}");
         } : programCounter -> { }));
         try {
             execution.get(RUN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -122,12 +122,19 @@ public final class IdeServer {
 
         return "{\"bytecode\":" + quote(compiler.getProgram().disassemble())
                 + ",\"output\":" + quote(output.toString(StandardCharsets.UTF_8))
+                + ",\"canvas\":" + (timedOut ? "[]" : canvasJson(vm))
                 + ",\"runtimeError\":" + (runtimeError == null ? "null" : quote(runtimeError))
                 // The VM is still running after a timeout, its maps cannot be read safely.
                 + ",\"variables\":" + (timedOut ? "{},\"locals\":{},\"stack\":[]" : memoryJson(vm))
                 + (debug ? ",\"lines\":" + linesJson(source, compiler.getProgram())
                         + ",\"steps\":" + (timedOut ? "[]" : "[" + String.join(",", steps) + "]") : "")
                 + "}";
+    }
+
+    private static String canvasJson(VirtualMachine vm) {
+        StringJoiner json = new StringJoiner(",", "[", "]");
+        vm.canvas().forEach(command -> json.add(quote(command)));
+        return json.toString();
     }
 
     /** 1-based source line of every instruction, 0 when the instruction has no source statement. */

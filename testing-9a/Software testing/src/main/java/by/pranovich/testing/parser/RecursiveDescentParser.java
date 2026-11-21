@@ -98,6 +98,7 @@ public final class RecursiveDescentParser {
             case "if" -> parseIf();
             case "while" -> parseWhile();
             case "print" -> parsePrint();
+            case "color", "point", "line", "rect", "circle", "clear" -> parseDraw();
             case "fun" -> parseFunction();
             case "return" -> parseReturn();
             case "go" -> parseGo();
@@ -281,6 +282,31 @@ public final class RecursiveDescentParser {
         }
         expectSymbol(")");
         codegen.emit(Opcode.PRINT_NEWLINE);
+        expectSymbol(";");
+    }
+
+    /** Canvas commands: color(r, g, b), point(x, y), line(x1, y1, x2, y2), rect(x, y, w, h), circle(x, y, r), clear(). */
+    private void parseDraw() {
+        String name = readWord();
+        expectSymbol("(");
+        int count = 0;
+        if (!peekSymbol(")")) {
+            do {
+                requireReal(parseExpression(), "Функция '" + name + "'");
+                count++;
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+        int expected = switch (name) {
+            case "color", "circle" -> 3;
+            case "point" -> 2;
+            case "line", "rect" -> 4;
+            default -> 0;
+        };
+        if (count != expected) {
+            throw error("Функция '" + name + "' принимает аргументов: " + expected);
+        }
+        codegen.emitDraw(name, count);
         expectSymbol(";");
     }
 
@@ -916,6 +942,7 @@ public final class RecursiveDescentParser {
     private boolean isKeyword(String word) {
         return switch (word) {
             case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return", "go", "sync",
+                    "color", "point", "line", "rect", "circle", "clear",
                     "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e",
                     "re", "im", "conj", "arg" -> true;
             default -> false;

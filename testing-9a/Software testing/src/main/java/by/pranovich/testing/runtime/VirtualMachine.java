@@ -8,7 +8,9 @@ import by.pranovich.testing.bytecode.Program;
 
 import java.io.PrintStream;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +30,7 @@ public final class VirtualMachine {
     /** Largest int magnitude: every integer up to it is exact in a double, 2^53 + 1 already is not. */
     public static final double MAX_EXACT_INT = 0x1p53 - 1;
     private static final int MAX_CALL_DEPTH = 10_000;
+    private static final int MAX_DRAW_COMMANDS = 100_000;
 
     /** A call of a user function: names in {@code locals} live in this frame, all others are global. */
     private record Frame(int returnAddress, List<?> locals,
@@ -46,6 +49,8 @@ public final class VirtualMachine {
     private final Map<String, Object> variables;
     private final Map<String, Object[]> arrays;
     private final PrintStream out;
+    // Drawing commands such as "line 0.0 0.0 10.0 10.0", in execution order; the IDE paints them on a canvas.
+    private final List<String> canvas;
     private final List<Thread> goroutines;
     private final AtomicReference<RuntimeException> goroutineError;
     // The lock of sync blocks; it also makes writes inside them, array elements included, visible to the next holder.
@@ -56,21 +61,22 @@ public final class VirtualMachine {
     }
 
     public VirtualMachine(PrintStream out) {
-        this(out, new ConcurrentHashMap<>(), new ConcurrentHashMap<>(),
+        this(out, new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), Collections.synchronizedList(new ArrayList<>()),
                 new CopyOnWriteArrayList<>(), new AtomicReference<>(), new ReentrantLock());
     }
 
     /** A goroutine of {@code parent}: fresh stack and frames, shared memory. */
     private VirtualMachine(VirtualMachine parent) {
-        this(parent.out, parent.variables, parent.arrays, parent.goroutines, parent.goroutineError, parent.syncLock);
+        this(parent.out, parent.variables, parent.arrays, parent.canvas, parent.goroutines, parent.goroutineError, parent.syncLock);
     }
 
     private VirtualMachine(PrintStream out, Map<String, Object> variables, Map<String, Object[]> arrays,
-                           List<Thread> goroutines, AtomicReference<RuntimeException> goroutineError,
+                           List<String> canvas, List<Thread> goroutines, AtomicReference<RuntimeException> goroutineError,
                            ReentrantLock syncLock) {
         this.out = out;
         this.variables = variables;
         this.arrays = arrays;
+        this.canvas = canvas;
         this.goroutines = goroutines;
         this.goroutineError = goroutineError;
         this.syncLock = syncLock;
@@ -134,6 +140,7 @@ public final class VirtualMachine {
                 }
                 case PRINT -> out.print(format(instruction.operand(), stack.pop()));
                 case PRINT_SPACE -> out.print(" ");
+                case DRAW -> draw((FunctionCall) instruction.operand());
                 case PRINT_NEWLINE -> out.print('\n');
                 case CALL_FUN -> programCounter = callFunction(code, programCounter) - 1;
                 case ENTER -> { }
@@ -156,6 +163,7 @@ public final class VirtualMachine {
         stack.clear();
         variables.clear();
         arrays.clear();
+        canvas.clear();
         frames.clear();
         goroutines.clear();
         goroutineError.set(null);
@@ -425,6 +433,23 @@ public final class VirtualMachine {
             default -> throw new IllegalArgumentException(
                     "Неизвестная встроенная функция '" + name + "'");
         };
+    }
+
+    private void draw(FunctionCall command) {
+        if (canvas.size() >= MAX_DRAW_COMMANDS) {
+            throw new IllegalStateException("Слишком много команд рисования (больше " + MAX_DRAW_COMMANDS + ")");
+        }
+        StringJoiner line = new StringJoiner(" ");
+        line.add(command.name());
+        for (Object value : popArguments(command.argumentCount())) {
+            line.add(value.toString());
+        }
+        canvas.add(line.toString());
+    }
+
+    /** Drawing commands of the last run: name and arguments separated by spaces. */
+    public List<String> canvas() {
+        return canvas;
     }
 
     private Object[] popArguments(int count) {
