@@ -28,3 +28,22 @@ export function decodeBand(encoded) {
   for (let i = 0; i < text.length; i++) pixels[i] = text.charCodeAt(i);
   return pixels;
 }
+
+let programPromise, mandelbrotPromise;
+export function loadMandelbrotProgram() {
+  return programPromise ??= (async () => {
+    const location = new URL('./programs/mandelbrot.lang', import.meta.url);
+    if (location.protocol === 'file:') return (await import('node:fs/promises')).readFile(location, 'utf8');
+    const response = await fetch(location);
+    if (!response.ok) throw new Error('Не удалось загрузить программу Мандельброта: HTTP ' + response.status);
+    return response.text();
+  })().catch(error => { programPromise = undefined; throw error; });
+}
+
+export function loadMandelbrotRuntime() {
+  return mandelbrotPromise ??= Promise.all([loadRuntime(), loadMandelbrotProgram()])
+    .then(([runtime, source]) => {
+      runtime.exports.installMandelbrotProgram(source);
+      return runtime;
+    }).catch(error => { mandelbrotPromise = undefined; throw error; });
+}

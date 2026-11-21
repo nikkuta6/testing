@@ -1,9 +1,31 @@
 package by.pranovich.wasm;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeAll;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WasmRuntimeTest {
+    @BeforeAll static void installLanguageProgram() throws Exception {
+        Mandelbrot.install(Files.readString(Path.of(System.getProperty("mandelbrotProgramSource"))));
+    }
+
+    @Test void languageRasterAndOrbitMatchThePreviousReference() {
+        for (double[] plane : new double[][] {{-2.5, 1, -1.3125, 1.3125}, {-0.752, -0.742, 0.095, 0.105}}) {
+            assertEquals(MandelbrotReference.renderBand(plane[0], plane[1], plane[2], plane[3], 24, 18, 0, 18, 120),
+                    Mandelbrot.renderBand(plane[0], plane[1], plane[2], plane[3], 24, 18, 0, 18, 120));
+        }
+        for (double[] c : new double[][] {{0, 0}, {-1, 0}, {-0.75, 0.1}, {1, 0}, {0, 1}}) {
+            assertEquals(MandelbrotReference.orbit(c[0], c[1], 80), Mandelbrot.orbit(c[0], c[1], 80));
+        }
+    }
+
+    @Test void rendersMoreThanTheDebuggerHistoryLimitThroughStreamingPixels() {
+        assertEquals(160 * 64 * 4, java.util.Base64.getDecoder().decode(
+                Mandelbrot.renderBand(-2.5, 1, -1.3125, 1.3125, 160, 64, 0, 64, 20)).length);
+    }
+
     @Test void preservesCallsAndDebugProtocol() {
         String result = RunService.run("fun int f(int n) { return n * 2; } print(f(7));", true);
         assertTrue(result.contains("\"output\":\"14\\n\""));

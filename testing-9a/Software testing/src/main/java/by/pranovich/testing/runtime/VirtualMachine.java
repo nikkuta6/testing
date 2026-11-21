@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.IntConsumer;
+import java.util.function.Consumer;
 
 /**
  * Executes the educational stack byte-code.
@@ -42,13 +43,20 @@ public final class VirtualMachine {
     private final Deque<Frame> frames = new ArrayDeque<>();
     private final List<DrawingCommand> drawingCommands = new ArrayList<>();
     private final PrintStream out;
+    private final Consumer<DrawingCommand> drawingSink;
 
     public VirtualMachine() {
         this(System.out);
     }
 
     public VirtualMachine(PrintStream out) {
+        this(out, null);
+    }
+
+    /** A streaming target avoids retaining a full raster in the debugger's command history. */
+    public VirtualMachine(PrintStream out, Consumer<DrawingCommand> drawingSink) {
         this.out = out;
+        this.drawingSink = drawingSink;
     }
 
     public void run(Program program) {
@@ -57,9 +65,18 @@ public final class VirtualMachine {
 
     /** Runs the program, calling {@code beforeStep} with the program counter before every instruction. */
     public void run(Program program, IntConsumer beforeStep) {
+        run(program, beforeStep, Map.of(), 0);
+    }
+
+    /** Runs a prepared program with host parameters in place of its default declarations. */
+    public void run(Program program, IntConsumer beforeStep, Map<String, Object> initialGlobals, int entryPoint) {
         resetMemory();
+        if (entryPoint < 0 || entryPoint >= program.instructions().size()) {
+            throw new IllegalArgumentException("Invalid program entry point");
+        }
+        variables.putAll(initialGlobals);
         List<Instruction> code = program.instructions();
-        int programCounter = 0;
+        int programCounter = entryPoint;
 
         while (programCounter < code.size()) {
             beforeStep.accept(programCounter);
@@ -133,7 +150,7 @@ public final class VirtualMachine {
     }
 
     private void draw(FunctionCall command) {
-        if (drawingCommands.size() >= MAX_DRAWING_COMMANDS) {
+        if (drawingSink == null && drawingCommands.size() >= MAX_DRAWING_COMMANDS) {
             throw new IllegalStateException("Слишком много графических команд (больше " + MAX_DRAWING_COMMANDS + ")");
         }
         Object[] values = popArguments(command.argumentCount());
@@ -153,8 +170,15 @@ public final class VirtualMachine {
                     }
                 }
             }
-            case "color" -> {
-                for (double channel : arguments) {
+            case "color", "pixel" -> {
+                if (command.name().equals("pixel")) {
+                    for (double coordinate : arguments.subList(0, 2)) {
+                        if (coordinate != Math.floor(coordinate) || coordinate < 0 || coordinate > 4095) {
+                            throw new IllegalArgumentException("pixel: координаты должны быть целыми от 0 до 4095");
+                        }
+                    }
+                }
+                for (double channel : arguments.subList(command.name().equals("pixel") ? 2 : 0, arguments.size())) {
                     if (channel != Math.floor(channel) || channel < 0 || channel > 255) {
                         throw new IllegalArgumentException("color: компоненты RGB должны быть целыми от 0 до 255");
                     }
@@ -173,7 +197,9 @@ public final class VirtualMachine {
             case "line", "clear" -> { }
             default -> throw new IllegalArgumentException("Неизвестная графическая команда: " + command.name());
         }
-        drawingCommands.add(new DrawingCommand(command.name(), arguments));
+        DrawingCommand drawing = new DrawingCommand(command.name(), arguments);
+        if (drawingSink == null) drawingCommands.add(drawing);
+        else drawingSink.accept(drawing);
     }
 
     /** CALL_FUN points at the ENTER of the function, whose operand lists the locals of the new frame. */
@@ -385,6 +411,8 @@ public final class VirtualMachine {
     private double realFunction(String name, double[] arguments) {
         return switch (name) {
             case "sin" -> Math.sin(arguments[0]);
+            case "log" -> Math.log(arguments[0]);
+            case "floor" -> Math.floor(arguments[0]);
             case "cos", "cod" -> Math.cos(arguments[0]);
             case "tg" -> Math.tan(arguments[0]);
             case "ctg" -> {

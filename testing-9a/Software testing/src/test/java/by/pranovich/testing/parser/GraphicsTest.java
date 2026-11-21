@@ -24,6 +24,7 @@ class GraphicsTest {
                 while n < 2 { draw(n * 10); n = n + 1; }
                 circle(100, 80, 20 + 5);
                 rect(10, 20, 30, 40);
+                pixel(3, 4, 200, 100, 50);
                 clear();
                 """));
         assertEquals(List.of(
@@ -33,6 +34,7 @@ class GraphicsTest {
                 new DrawingCommand("line", List.of(10.0, 0.0, 20.0, 20.0)),
                 new DrawingCommand("circle", List.of(100.0, 80.0, 25.0)),
                 new DrawingCommand("rect", List.of(10.0, 20.0, 30.0, 40.0)),
+                new DrawingCommand("pixel", List.of(3.0, 4.0, 200.0, 100.0, 50.0)),
                 new DrawingCommand("clear", List.of())), vm.drawingCommands());
     }
 
@@ -53,7 +55,7 @@ class GraphicsTest {
     @ValueSource(strings = {
             "line(1, 2, 3);", "circle(1, 2, 3, 4);", "rect(1, 2);", "canvas();",
             "color(1, 2);", "clear(1);", "line(1i, 0, 1, 2);", "print(circle(1, 2, 3));",
-            "int line = 1;", "fun void rect() {}"
+            "int line = 1;", "fun void rect() {}", "pixel(1, 2, 3);", "pixel(1i, 2, 3, 4, 5);"
     })
     void rejectsInvalidDrawingSyntax(String source) {
         assertThrows(ParseException.class, () -> compile(source));
@@ -63,7 +65,9 @@ class GraphicsTest {
     @ValueSource(strings = {
             "canvas(0, 20);", "canvas(4097, 20);", "canvas(10.5, 20);",
             "color(-1, 0, 0);", "color(0, 256, 0);", "color(0, 0, 0.5);",
-            "circle(1, 2, -1);", "rect(1, 2, -1, 5);", "rect(1, 2, 5, -1);"
+            "circle(1, 2, -1);", "rect(1, 2, -1, 5);", "rect(1, 2, 5, -1);",
+            "pixel(-1, 2, 3, 4, 5);", "pixel(0, 4096, 3, 4, 5);", "pixel(0.5, 2, 3, 4, 5);",
+            "pixel(1, 2, 256, 0, 0);", "pixel(1, 2, 0, 0, 0.1);"
     })
     void rejectsInvalidDrawingValuesWithoutRecordingTheCommand(String source) {
         VirtualMachine vm = new VirtualMachine();

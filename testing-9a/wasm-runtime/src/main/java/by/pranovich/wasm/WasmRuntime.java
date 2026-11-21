@@ -16,6 +16,11 @@ public final class WasmRuntime {
     }
 
     @JSExport
+    public static void installMandelbrotProgram(String source) {
+        Mandelbrot.install(source);
+    }
+
+    @JSExport
     public static String orbit(double re, double im, int limit) {
         return Mandelbrot.orbit(re, im, limit);
     }

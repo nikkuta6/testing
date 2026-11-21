@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { loadRuntime } from '../dist/wasm-loader.mjs';
+import { loadRuntime, loadMandelbrotProgram, decodeBand } from '../dist/wasm-loader.mjs';
 
 const runtime = await loadRuntime();
 const wasm = runtime.exports;
@@ -10,7 +10,7 @@ const run = (source, debug = false) => JSON.parse(wasm.run(source, debug));
 test('the actual compiled module exports the language and fractal runtimes', () => {
   assert.ok(runtime.module instanceof WebAssembly.Module);
   assert.ok(runtime.instance instanceof WebAssembly.Instance);
-  for (const name of ['run', 'orbit', 'sampleEscape', 'renderBand']) assert.equal(typeof wasm[name], 'function');
+  for (const name of ['run', 'orbit', 'sampleEscape', 'renderBand', 'installMandelbrotProgram']) assert.equal(typeof wasm[name], 'function');
   assert.equal(wasm.version(), 'WebAssembly GC');
 });
 
@@ -36,6 +36,24 @@ test('Wasm preserves partial output on failure and starts each run with clean me
   assert.match(failure.runtimeError, /Деление на ноль/);
   assert.equal(failure.graphics.length, 1);
   assert.deepEqual(run('print(2);').variables, {});
+});
+
+test('the Mandelbrot source runs as an ordinary language program with pixel output', async () => {
+  const result = run(await loadMandelbrotProgram());
+  assert.equal(result.runtimeError, null);
+  assert.equal(result.syntaxError, undefined);
+  assert.equal(result.graphics.length, 80 * 60 + 1);
+  assert.deepEqual(result.graphics[0], { name: 'canvas', arguments: [80, 60] });
+  assert.ok(result.graphics.slice(1).every(command => command.name === 'pixel'));
+});
+
+test('editing the language palette changes the Wasm renderer without recompiling Java', async () => {
+  const source = await loadMandelbrotProgram();
+  try {
+    wasm.installMandelbrotProgram(source.replace('    resultR = 10;', '    resultR = 42;'));
+    const band = wasm.renderBand(0, 0.01, 0, 0.01, 2, 2, 0, 2, 10);
+    assert.deepEqual(Array.from(decodeBand(band).slice(0, 4)), [42, 12, 20, 255]);
+  } finally { wasm.installMandelbrotProgram(source); }
 });
 
 test('Wasm agrees with every exported JVM regression fixture', async () => {

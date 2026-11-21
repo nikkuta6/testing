@@ -98,7 +98,7 @@ public final class RecursiveDescentParser {
             case "if" -> parseIf();
             case "while" -> parseWhile();
             case "print" -> parsePrint();
-            case "canvas", "color", "line", "circle", "rect", "clear" -> parseDrawing();
+            case "canvas", "color", "line", "circle", "rect", "clear", "pixel" -> parseDrawing();
             case "fun" -> parseFunction();
             case "return" -> parseReturn();
             case "else" -> throw error("'else' без предшествующего 'if'");
@@ -124,6 +124,7 @@ public final class RecursiveDescentParser {
             case "canvas" -> 2;
             case "color", "circle" -> 3;
             case "line", "rect" -> 4;
+            case "pixel" -> 5;
             default -> 0; // clear()
         };
         expectSymbol("(");
@@ -767,7 +768,7 @@ public final class RecursiveDescentParser {
 
     private void validateFunction(String name, int argumentCount) {
         switch (name) {
-            case "sin", "cos", "cod", "tg", "ctg", "abs", "re", "im", "conj", "arg" -> {
+            case "sin", "cos", "cod", "tg", "ctg", "abs", "re", "im", "conj", "arg", "log", "floor" -> {
                 if (argumentCount != 1) {
                     throw error("Функция '" + name + "' принимает ровно один аргумент");
                 }
@@ -908,7 +909,7 @@ public final class RecursiveDescentParser {
         return switch (word) {
             case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return",
                     "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e",
-                    "re", "im", "conj", "arg", "canvas", "color", "line", "circle", "rect", "clear" -> true;
+                    "re", "im", "conj", "arg", "log", "floor", "canvas", "color", "line", "circle", "rect", "clear", "pixel" -> true;
             default -> false;
         };
     }

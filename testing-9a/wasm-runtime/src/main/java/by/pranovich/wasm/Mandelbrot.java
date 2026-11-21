@@ -1,68 +1,100 @@
 package by.pranovich.wasm;
 
-import java.util.Base64;
+import by.pranovich.testing.bytecode.Program;
+import by.pranovich.testing.compiler.Compiler;
+import by.pranovich.testing.runtime.DrawingCommand;
+import by.pranovich.testing.runtime.VirtualMachine;
 
-/** Fractal, smooth escape colour and selected orbit; all numerical work is compiled to Wasm. */
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Consumer;
+
+/** Host adapter only: formulas, iteration, palette and pixel coordinates live in mandelbrot.lang. */
 public final class Mandelbrot {
+    private static final String PARAMETERS_END = "// @mandelbrot-parameters-end";
+    private static Program program;
+    private static Map<String, Object> defaults;
+    private static int entryPoint;
+    private static final PrintStream SILENT = new PrintStream(OutputStream.nullOutputStream());
+
     private Mandelbrot() { }
 
-    // Results are confined to the worker running this Wasm instance; no shared mutable memory.
-    private static int escapedAt;
-    private static double smooth;
-
-    private static void sample(double re, double im, int limit) {
-        escapedAt = 0;
-        smooth = 0;
-        double q = (re - 0.25) * (re - 0.25) + im * im;
-        if (q * (q + re - 0.25) < 0.25 * im * im || (re + 1) * (re + 1) + im * im < 0.0625) return;
-        double zr = 0, zi = 0;
-        for (int step = 1; step <= limit; step++) {
-            double nextRe = zr * zr - zi * zi + re;
-            zi = 2 * zr * zi + im;
-            zr = nextRe;
-            double magnitude = zr * zr + zi * zi;
-            if (magnitude > 4) {
-                escapedAt = step;
-                smooth = Double.isFinite(magnitude) ? step + 1 - Math.log(Math.log(magnitude) / 2) / Math.log(2) : step;
-                return;
-            }
+    /** Each worker compiles its own copy once; later bands reuse the bytecode. */
+    public static void install(String source) {
+        if (source == null || source.length() > RunService.MAX_SOURCE_BYTES) {
+            throw new IllegalArgumentException("Некорректная программа Мандельброта");
         }
+        int boundary = source.indexOf(PARAMETERS_END);
+        if (boundary < 0) throw new IllegalArgumentException("Нет границы параметров Мандельброта");
+        Program header = compile(source.substring(0, boundary));
+        Program compiled = compile(source);
+        VirtualMachine vm = new VirtualMachine(SILENT);
+        vm.run(header);
+        defaults = vm.globalVariables();
+        entryPoint = header.instructions().size() - 1; // Skip defaults; preserve absolute jumps.
+        program = compiled;
+    }
+
+    private static Program compile(String source) {
+        Compiler compiler = new Compiler(source);
+        if (!compiler.compile()) {
+            throw new IllegalArgumentException("Мандельброт: " + compiler.getSyntaxError().getMessage()
+                    + " (строка " + compiler.getSyntaxError().getLineNumber() + ")");
+        }
+        return compiler.getProgram();
+    }
+
+    private static VirtualMachine execute(int mode, Map<String, Object> parameters, Consumer<DrawingCommand> sink) {
+        if (program == null) throw new IllegalStateException("Программа Мандельброта не загружена");
+        Map<String, Object> globals = new HashMap<>(defaults);
+        globals.putAll(parameters);
+        globals.put("mode", (double) mode);
+        VirtualMachine vm = new VirtualMachine(SILENT, sink);
+        long started = System.currentTimeMillis();
+        int[] instructions = { 0 };
+        vm.run(program, pc -> {
+            if ((instructions[0]++ & 4095) == 0 && System.currentTimeMillis() - started > 30_000) {
+                throw new IllegalStateException("Превышено время расчёта полосы (30 с)");
+            }
+        }, globals, entryPoint);
+        return vm;
     }
 
     public static String sampleJson(double re, double im, int limit) {
         validatePoint(re, im);
         validateLimit(limit, 6000);
-        sample(re, im, limit);
-        return "{\"iterations\":" + escapedAt + ",\"smooth\":" + smooth + "}";
+        Map<String, Object> values = execute(1, Map.of("selectedRe", re, "selectedIm", im,
+                "iterationLimit", (double) limit), null).globalVariables();
+        return "{\"iterations\":" + ((Double) values.get("resultStep")).intValue()
+                + ",\"smooth\":" + values.get("resultSmooth") + "}";
     }
 
     public static int color(double smooth, boolean escaped) {
-        if (!escaped) return 0x0a0c14;
-        double phase = smooth * 0.12;
-        return channel(phase) << 16 | channel(phase + 2) << 8 | channel(phase + 4);
-    }
-
-    private static int channel(double phase) {
-        return (int) Math.floor(128 + 110 * Math.cos(phase) + 0.5);
+        validatePoint(smooth, 0);
+        Map<String, Object> values = execute(3, Map.of("colorSmooth", smooth,
+                "colorEscaped", escaped ? 1.0 : 0.0), null).globalVariables();
+        return ((Double) values.get("resultR")).intValue() << 16
+                | ((Double) values.get("resultG")).intValue() << 8
+                | ((Double) values.get("resultB")).intValue();
     }
 
     public static String orbit(double re, double im, int limit) {
         validatePoint(re, im);
         validateLimit(limit, 1000);
+        VirtualMachine vm = execute(2, Map.of("selectedRe", re, "selectedIm", im,
+                "orbitLimit", (double) limit), null);
+        Map<String, Object> values = vm.globalVariables();
+        Object[] real = vm.globalArrays().get("orbitRe"), imaginary = vm.globalArrays().get("orbitIm");
+        int count = ((Double) values.get("orbitCount")).intValue();
         StringBuilder result = new StringBuilder("{\"points\":[");
-        double zr = 0, zi = 0;
-        boolean escaped = false;
-        for (int step = 1; step <= limit; step++) {
-            double nextRe = zr * zr - zi * zi + re;
-            zi = 2 * zr * zi + im;
-            zr = nextRe;
-            if (step > 1) result.append(',');
-            // The interactive plane stays finite; reject non-finite results at the boundary as well.
-            if (!Double.isFinite(zr) || !Double.isFinite(zi)) throw new IllegalArgumentException("Слишком большая координата C");
-            result.append("{\"re\":").append(zr).append(",\"im\":").append(zi).append('}');
-            if (zr * zr + zi * zi > 4) { escaped = true; break; }
+        for (int i = 0; i < count; i++) {
+            if (i > 0) result.append(',');
+            result.append("{\"re\":").append(real[i]).append(",\"im\":").append(imaginary[i]).append('}');
         }
-        return result.append("],\"escaped\":").append(escaped).append('}').toString();
+        return result.append("],\"escaped\":").append((Double) values.get("orbitEscaped") != 0).append('}').toString();
     }
 
     public static String renderBand(double left, double right, double bottom, double top,
@@ -76,19 +108,28 @@ public final class Mandelbrot {
         if (!(right > left) || !(top > bottom)) throw new IllegalArgumentException("Некорректная область фрактала");
         validateLimit(limit, 6000);
         byte[] pixels = new byte[width * (toRow - fromRow) * 4];
-        int offset = 0;
-        for (int y = fromRow; y < toRow; y++) {
-            double im = top - (double) y / height * (top - bottom);
-            for (int x = 0; x < width; x++) {
-                double re = left + (double) x / width * (right - left);
-                sample(re, im, limit);
-                int rgb = color(smooth, escapedAt != 0);
-                pixels[offset++] = (byte) (rgb >>> 16);
-                pixels[offset++] = (byte) (rgb >>> 8);
-                pixels[offset++] = (byte) rgb;
-                pixels[offset++] = (byte) 255;
-            }
-        }
+        int[] count = { 0 };
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("viewLeft", left); parameters.put("viewRight", right);
+        parameters.put("viewBottom", bottom); parameters.put("viewTop", top);
+        parameters.put("imageWidth", (double) width); parameters.put("imageHeight", (double) height);
+        parameters.put("fromRow", (double) fromRow); parameters.put("toRow", (double) toRow);
+        parameters.put("iterationLimit", (double) limit);
+        execute(0, parameters, command -> {
+            if (command.name().equals("canvas")) return;
+            if (!command.name().equals("pixel")) throw new IllegalStateException("Ожидалась команда pixel");
+            var a = command.arguments();
+            int x = a.get(0).intValue(), y = a.get(1).intValue();
+            if (x >= width || y < fromRow || y >= toRow) throw new IllegalStateException("Пиксель вне области потока");
+            int offset = ((y - fromRow) * width + x) * 4;
+            if (pixels[offset + 3] != 0) throw new IllegalStateException("Повторный пиксель");
+            pixels[offset] = a.get(2).byteValue();
+            pixels[offset + 1] = a.get(3).byteValue();
+            pixels[offset + 2] = a.get(4).byteValue();
+            pixels[offset + 3] = (byte) 255;
+            count[0]++;
+        });
+        if (count[0] != width * (toRow - fromRow)) throw new IllegalStateException("Полоса рассчитана не полностью");
         return Base64.getEncoder().encodeToString(pixels);
     }
 

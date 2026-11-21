@@ -382,6 +382,8 @@ h3:first-of-type {
           </span>
         </h3>
         <div id="mandelbrot-controls" hidden>
+          <label>Потоков: <input id="mandelbrot-threads" type="number" min="1" max="32" step="1" value="10" required></label>
+          <a class="header-btn" href="./programs/mandelbrot.lang" target="_blank" rel="noopener">Код на нашем языке</a>
           <label>Шагов орбиты: <input id="mandelbrot-steps" type="number" min="1" max="1000" step="1" value="80" required></label>
           <span>z₀ = 0, zₙ₊₁ = zₙ² + C</span>
           <button type="button" class="header-btn" id="mandelbrot-zoom-in" title="Увеличить в 2 раза">+</button>
@@ -603,7 +605,7 @@ function LangHighlightRules() {
       { token: 'comment', regex: '/\\*', next: 'comment' },
       { token: 'storage.type', regex: '\\b(?:int|float|complex|void)\\b' },
       { token: 'keyword.control', regex: '\\b(?:if|else|while|fun|return)\\b' },
-      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|re|im|conj|arg|_pi|_e|canvas|color|line|circle|rect|clear)\\b' },
+      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|log|floor|max|min|re|im|conj|arg|_pi|_e|canvas|color|line|circle|rect|clear|pixel)\\b' },
       { token: 'constant.numeric', regex: '(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?(?:i\\b)?' },
       { token: 'variable', regex: '[A-Za-z_\\u0400-\\u04FF][\\w\\u0400-\\u04FF]*' },
       { token: 'keyword.operator', regex: '<>|<=|>=|==|&&|\\|\\||[-+*/^!<>=]' },
@@ -928,6 +930,10 @@ function showGraphics(commands = [], count = commands.length) {
         ctx.beginPath();
         ctx.arc(a[0], a[1], a[2], 0, Math.PI * 2);
         ctx.stroke();
+        break;
+      case 'pixel':
+        ctx.fillStyle = `rgb(${a[2]}, ${a[3]}, ${a[4]})`;
+        ctx.fillRect(a[0], a[1], 1, 1);
         break;
       case 'rect': ctx.strokeRect(a[0], a[1], a[2], a[3]); break;
     }

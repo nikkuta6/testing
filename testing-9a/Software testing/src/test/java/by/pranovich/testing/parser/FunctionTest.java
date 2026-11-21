@@ -26,6 +26,7 @@ class FunctionTest {
     static Stream<Arguments> validPrograms() {
         return Stream.of(
                 Arguments.of("fun int add(int a, int b) { return a + b; } print(add(2, 3));", "5\n"),
+                Arguments.of("print(log(1), floor(2.9), floor(-2.1));", "0.0 2.0 -3.0\n"),
                 Arguments.of("print(add(2, 3)); fun int add(int a, int b) { return a + b; }", "5\n"),
                 Arguments.of("fun int fact(int n) { if n <= 1 { return 1; } return n * fact(n - 1); }"
                         + " print(fact(10));", "3628800\n"),
@@ -73,6 +74,9 @@ class FunctionTest {
     static Stream<Arguments> compileErrors() {
         return Stream.of(
                 Arguments.of("return 1;", "'return' вне функции"),
+                Arguments.of("print(log(1, 2));", "ровно один аргумент"),
+                Arguments.of("print(floor());", "ровно один аргумент"),
+                Arguments.of("print(log(1i));", "complex"),
                 Arguments.of("if 1 { fun int f() { return 1; } }", "только на верхнем уровне"),
                 Arguments.of("fun int f() { fun int g() { return 1; } return 1; }", "только на верхнем уровне"),
                 Arguments.of("fun int f() { return 1; } fun int f() { return 2; }", "уже объявлена"),

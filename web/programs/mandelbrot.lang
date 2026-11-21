@@ -1,0 +1,90 @@
+// Параметры по умолчанию: этот файл можно открыть в редакторе и запустить.
+// При параллельном расчёте каждый Worker подставляет свою полосу [fromRow, toRow).
+int mode = 0;
+int imageWidth = 80, imageHeight = 60;
+int fromRow = 0, toRow = imageHeight;
+int iterationLimit = 240, orbitLimit = 80;
+float viewLeft = -2.5, viewRight = 1;
+float viewBottom = -1.3125, viewTop = 1.3125;
+float selectedRe = -0.75, selectedIm = 0.1;
+float colorSmooth = 0;
+int colorEscaped = 0;
+// @mandelbrot-parameters-end
+
+int resultStep = 0;
+float resultSmooth = 0;
+int resultR = 10, resultG = 12, resultB = 20;
+int orbitCount = 0, orbitEscaped = 0;
+
+// z0 = 0, z(n+1) = z(n)^2 + C. Проверка кардиоиды ускоряет внутренние точки.
+fun void sample(float cr, float ci, int limit) {
+    resultStep = 0;
+    resultSmooth = 0;
+    float q = (cr - 0.25) * (cr - 0.25) + ci * ci;
+    if q * (q + cr - 0.25) < 0.25 * ci * ci || (cr + 1) * (cr + 1) + ci * ci < 0.0625 {
+        return;
+    }
+    float zr = 0, zi = 0;
+    int step = 1;
+    while step <= limit {
+        float nextRe = zr * zr - zi * zi + cr;
+        zi = 2 * zr * zi + ci;
+        zr = nextRe;
+        float magnitude = zr * zr + zi * zi;
+        if magnitude > 4 {
+            resultStep = step;
+            resultSmooth = step + 1 - log(log(magnitude) / 2) / log(2);
+            return;
+        }
+        step = step + 1;
+    }
+}
+
+// Непрерывная раскраска внешних точек по сглаженному времени выхода.
+fun void palette(float smooth, int escaped) {
+    resultR = 10;
+    resultG = 12;
+    resultB = 20;
+    if escaped <> 0 {
+        float phase = smooth * 0.12;
+        resultR = floor(128 + 110 * cos(phase) + 0.5);
+        resultG = floor(128 + 110 * cos(phase + 2) + 0.5);
+        resultB = floor(128 + 110 * cos(phase + 4) + 0.5);
+    }
+}
+
+if mode == 0 {
+    canvas(imageWidth, imageHeight);
+    int y = fromRow;
+    while y < toRow {
+        float ci = viewTop - y * 1.0 / imageHeight * (viewTop - viewBottom);
+        int x = 0;
+        while x < imageWidth {
+            float cr = viewLeft + x * 1.0 / imageWidth * (viewRight - viewLeft);
+            sample(cr, ci, iterationLimit);
+            palette(resultSmooth, resultStep);
+            pixel(x, y, resultR, resultG, resultB);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+}
+if mode == 1 {
+    sample(selectedRe, selectedIm, iterationLimit);
+}
+if mode == 2 {
+    float orbitRe[orbitLimit], orbitIm[orbitLimit];
+    complex z = 0, c = selectedRe + selectedIm * 1i;
+    while orbitCount < orbitLimit && orbitEscaped == 0 {
+        z = z * z + c;
+        orbitRe[orbitCount] = re(z);
+        orbitIm[orbitCount] = im(z);
+        orbitCount = orbitCount + 1;
+        if re(z) * re(z) + im(z) * im(z) > 4 {
+            orbitEscaped = 1;
+        }
+    }
+}
+if mode == 3 {
+    palette(colorSmooth, colorEscaped);
+}

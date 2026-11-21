@@ -1,6 +1,8 @@
-import { loadRuntime, decodeBand } from './wasm-loader.mjs';
+import { loadMandelbrotRuntime, decodeBand } from './wasm-loader.mjs';
 
-const { exports: wasm } = await loadRuntime();
+import { startMandelbrotRender } from './mandelbrot-pool.mjs';
+
+const { exports: wasm } = await loadMandelbrotRuntime();
 export const PLANE = Object.freeze({ left: -2.5, right: 1, bottom: -1.3125, top: 1.3125 });
 export const MAX_ZOOM = 1e12;
 
@@ -77,7 +79,7 @@ export class MandelbrotView {
     this.background = null;
     this.plane = { ...PLANE };
     this.renderVersion = 0;
-    this.worker = null;
+    this.renderJob = null;
     button.disabled = false;
     button.addEventListener('click', event => {
       event.stopPropagation();
@@ -130,6 +132,11 @@ export class MandelbrotView {
       this.plane = { ...PLANE };
       this.queueRender(0);
     });
+    this.threads = document.getElementById('mandelbrot-threads');
+    this.threads.addEventListener('change', () => {
+      if (!this.threads.checkValidity()) { this.threads.reportValidity(); return; }
+      if (this.active) this.queueRender(0);
+    });
     steps.addEventListener('input', () => {
       steps.setCustomValidity('');
       if (!steps.checkValidity()) return;
@@ -172,8 +179,8 @@ export class MandelbrotView {
     this.active = false;
     this.renderVersion++;
     clearTimeout(this.renderTimer);
-    this.worker?.terminate();
-    this.worker = null;
+    this.renderJob?.cancel();
+    this.renderJob = null;
     this.drag = null;
     this.controls.hidden = true;
     this.button.classList.remove('active');
@@ -211,8 +218,8 @@ export class MandelbrotView {
   }
 
   queueRender(delay = 100) {
-    this.worker?.terminate();
-    this.worker = null;
+    this.renderJob?.cancel();
+    this.renderJob = null;
     this.renderVersion++;
     this.background = null;
     clearTimeout(this.renderTimer);
@@ -227,32 +234,35 @@ export class MandelbrotView {
   renderBackground() {
     const version = ++this.renderVersion;
     const { width, height } = this.canvas;
-    this.worker?.terminate();
-    const worker = new Worker(new URL('./mandelbrot-worker.mjs', import.meta.url), { type: 'module' });
-    this.worker = worker;
-    this.status.textContent = 'Пересчёт точек новой области: 0%';
-    worker.onmessage = event => {
-      if (!this.active || version !== this.renderVersion) return;
-      if (event.data.error) {
-        worker.terminate();
-        this.worker = null;
-        this.status.textContent = event.data.error;
-      } else if (event.data.pixels) {
-        this.background = new ImageData(new Uint8ClampedArray(event.data.pixels), width, height);
-        worker.terminate();
-        this.worker = null;
+    this.renderJob?.cancel();
+    const threads = Number(this.threads.value);
+    if (!this.threads.checkValidity()) { this.threads.reportValidity(); return; }
+    this.status.textContent = `Пересчёт на нашем языке · потоков: ${threads} · 0%`;
+    this.renderJob = startMandelbrotRender({
+      width, height, threads, plane: this.plane, limit: iterationLimit(this.plane),
+      onProgress: (progress, count) => {
+        if (this.active && version === this.renderVersion) {
+          this.status.textContent = `Пересчёт на нашем языке · потоков: ${count} · ${progress}%`;
+        }
+      },
+      onBand: (pixels, fromRow, toRow) => {
+        if (this.active && version === this.renderVersion) {
+          const band = pixels.slice(fromRow * width * 4, toRow * width * 4);
+          this.canvas.getContext('2d').putImageData(new ImageData(band, width, toRow - fromRow), 0, fromRow);
+        }
+      },
+      onComplete: pixels => {
+        if (!this.active || version !== this.renderVersion) return;
+        this.background = new ImageData(pixels, width, height);
+        this.renderJob = null;
         this.drawOrbit();
-      } else {
-        this.status.textContent = `Пересчёт точек новой области: ${event.data.progress}%`;
+      },
+      onError: error => {
+        if (!this.active || version !== this.renderVersion) return;
+        this.renderJob = null;
+        this.status.textContent = error.message;
       }
-    };
-    worker.onerror = () => {
-      if (!this.active || version !== this.renderVersion) return;
-      worker.terminate();
-      this.worker = null;
-      this.status.textContent = 'Не удалось рассчитать фрактал. Нажмите «Сбросить вид», чтобы повторить.';
-    };
-    worker.postMessage({ width, height, plane: { ...this.plane }, limit: iterationLimit(this.plane) });
+    });
   }
 
   drawOrbit() {
@@ -262,7 +272,7 @@ export class MandelbrotView {
     ctx.putImageData(background, 0, 0);
     this.drawAxes(ctx);
     if (!this.selected) {
-      this.status.textContent = 'Щелчок — орбита C · Колесо — зум под курсором · Перетаскивание — сдвиг';
+      this.status.textContent = `Наш язык · потоков: ${this.threads.value} · Щелчок — орбита C · Колесо — зум · Перетаскивание — сдвиг`;
       return;
     }
     if (!this.steps.checkValidity()) return;

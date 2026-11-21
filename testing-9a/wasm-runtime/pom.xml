@@ -40,6 +40,7 @@
           <systemPropertyVariables>
             <languageTestSources>${project.basedir}/../Software testing/src/test/java</languageTestSources>
             <parityOutput>${project.build.directory}/parity-fixtures.json</parityOutput>
+            <mandelbrotProgramSource>${project.basedir}/../../web/programs/mandelbrot.lang</mandelbrotProgramSource>
           </systemPropertyVariables>
         </configuration>
       </plugin>
