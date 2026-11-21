@@ -1,0 +1,14 @@
+{
+  "name": "testing-wasm-ide",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/serve.mjs",
+    "test": "node scripts/test.mjs",
+    "test:wasm": "node scripts/test.mjs --wasm-only",
+    "run": "node scripts/run.mjs"
+  }
+}

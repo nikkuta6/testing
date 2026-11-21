@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Учебная IDE для своего языка</title>
+  <title>Учебная IDE — WebAssembly</title>
   
   <style>
 body {
@@ -302,6 +302,8 @@ h3:first-of-type {
           <span>Редактор Ace Editor</span>
           <span>
             <span id="debug-status"></span>
+            <span id="engine-status" role="status" title="Компилятор и виртуальная машина работают в WebAssembly">Загрузка WebAssembly…</span>
+            <button class="header-btn" id="runtime-stop-btn" title="Прервать выполнение программы" hidden>■</button>
             <button class="header-btn" id="header-run-btn" title="Запустить (Ctrl+Enter)">▶</button>
             <button class="header-btn" id="debug-start-btn" title="Пошаговый режим (F5)">🐞</button>
             <span id="debug-controls" hidden>
@@ -839,8 +841,10 @@ function markLine(line, kind) {
   if (row < editor.getFirstVisibleRow() || row > editor.getLastVisibleRow()) editor.scrollToLine(row, true, true, () => {});
 }
 
-// Компиляция и запуск на Java-бэкенде: POST с исходным текстом. Возвращает результат или null при ошибке.
-async function requestRun(url) {
+// Compilation and execution are local to a WebAssembly worker; no source is sent to a server.
+let runRequest = 0;
+async function requestRun(debugMode) {
+  const request = ++runRequest;
   const editor = window.editorInstance;
   document.querySelector('#win-output .window-body.console-log').replaceChildren();
   editor.session.clearAnnotations();
@@ -850,12 +854,16 @@ async function requestRun(url) {
 
   let result;
   try {
-    const response = await fetch(url, { method: 'POST', body: editor.getValue() });
-    if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + await response.text());
-    result = await response.json();
+    if (!window.wasmRunner) throw new Error('WebAssembly ещё загружается. Повторите запуск.');
+    document.getElementById('runtime-stop-btn').hidden = false;
+    result = await window.wasmRunner.run(editor.getValue(), debugMode);
+    if (request !== runRequest) return null;
   } catch (e) {
-    window.idePrint('[Система]: Сервер недоступен: ' + e.message, { color: '#ff6b6b', bold: true });
+    if (request !== runRequest) return null;
+    window.idePrint('[Система]: ' + e.message, { color: '#ff6b6b', bold: true });
     return null;
+  } finally {
+    if (request === runRequest) document.getElementById('runtime-stop-btn').hidden = true;
   }
 
   if (result.syntaxError) {
@@ -974,7 +982,7 @@ function showBytecode(text, pc = -1, cls = 'bc-current') {
 
 window.runProgram = async function() {
   if (debug) debugStop();
-  const result = await requestRun('/api/run');
+  const result = await requestRun(false);
   if (!result) return;
   showBytecode(result.bytecode);
   showMemory(result.variables, result.stack, result.locals);
@@ -985,7 +993,7 @@ window.runProgram = async function() {
   }
 };
 
-// Пошаговый режим: сервер присылает снимок VM перед каждой инструкцией, шаги листаются локально (и назад тоже).
+// The Wasm runtime captures VM state before each instruction; the UI can replay it in either direction.
 // debug.index === steps.length — программа завершена, показывается итоговое состояние.
 let debug = null;
 
@@ -996,7 +1004,7 @@ function setDebugUi(on) {
 }
 
 async function debugStart() {
-  const result = await requestRun('/api/debug');
+  const result = await requestRun(true);
   if (!result) return;
   debug = { result, index: 0 };
   setDebugUi(true);
@@ -1117,18 +1125,34 @@ window.executeVmPrint = function(text, colorToken = null, sizeParam = null) {
 
   </script>
   <script type="module">
-    import { MandelbrotView } from '/mandelbrot.mjs';
-    window.mandelbrotView = new MandelbrotView({
-      canvas: document.getElementById('graphics-canvas'),
-      body: document.querySelector('#win-graphics .graphics-body'),
-      button: document.getElementById('mandelbrot-btn'),
-      controls: document.getElementById('mandelbrot-controls'),
-      steps: document.getElementById('mandelbrot-steps'),
-      status: document.getElementById('mandelbrot-status'),
-      clearButton: document.getElementById('graphics-clear-btn'),
-      onEnter: () => debugStop(),
-      onExit: () => window.restoreProgramGraphics()
+    import { WasmRunner } from './wasm-client.mjs';
+    const engineStatus = document.getElementById('engine-status');
+    window.wasmRunner = new WasmRunner(state => {
+      engineStatus.textContent = state === 'ready' ? 'WebAssembly' : state === 'loading' ? 'Загрузка WebAssembly…' : 'WebAssembly: остановлено';
     });
+    window.wasmRunner.ready().catch(error => {
+      if (error.name === 'AbortError') return;
+      engineStatus.textContent = 'WebAssembly недоступен';
+      window.idePrint(error.message, { color: '#ff6b6b', bold: true });
+    });
+    document.getElementById('runtime-stop-btn').addEventListener('click', () => window.wasmRunner.cancel());
+    try {
+      const { MandelbrotView } = await import('./mandelbrot.mjs');
+      window.mandelbrotView = new MandelbrotView({
+        canvas: document.getElementById('graphics-canvas'),
+        body: document.querySelector('#win-graphics .graphics-body'),
+        button: document.getElementById('mandelbrot-btn'),
+        controls: document.getElementById('mandelbrot-controls'),
+        steps: document.getElementById('mandelbrot-steps'),
+        status: document.getElementById('mandelbrot-status'),
+        clearButton: document.getElementById('graphics-clear-btn'),
+        onEnter: () => debugStop(),
+        onExit: () => window.restoreProgramGraphics()
+      });
+    } catch (error) {
+      document.getElementById('mandelbrot-btn').title = error.message;
+      window.idePrint(error.message, { color: '#ff6b6b', bold: true });
+    }
   </script>
 
 </body>

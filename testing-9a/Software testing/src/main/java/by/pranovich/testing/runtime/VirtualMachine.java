@@ -14,7 +14,6 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.StringJoiner;
 import java.util.function.IntConsumer;
 
 /**
@@ -149,14 +148,14 @@ public final class VirtualMachine {
         switch (command.name()) {
             case "canvas" -> {
                 for (double size : arguments) {
-                    if (size != Math.rint(size) || size < 1 || size > 4096) {
+                    if (size != Math.floor(size) || size < 1 || size > 4096) {
                         throw new IllegalArgumentException("canvas: размеры должны быть целыми от 1 до 4096");
                     }
                 }
             }
             case "color" -> {
                 for (double channel : arguments) {
-                    if (channel != Math.rint(channel) || channel < 0 || channel > 255) {
+                    if (channel != Math.floor(channel) || channel < 0 || channel > 255) {
                         throw new IllegalArgumentException("color: компоненты RGB должны быть целыми от 0 до 255");
                     }
                 }
@@ -203,6 +202,19 @@ public final class VirtualMachine {
     /** Arrays of the current call frame; empty at the top level, where everything is in {@code arrays}. */
     public Map<String, Object[]> localArrays() {
         return frames.isEmpty() ? Map.of() : frames.peek().arrays();
+    }
+
+    /** Debugger snapshots use public APIs so the same VM works without reflection in WebAssembly. */
+    public Map<String, Object> globalVariables() {
+        return Map.copyOf(variables);
+    }
+
+    public Map<String, Object[]> globalArrays() {
+        return Map.copyOf(arrays);
+    }
+
+    public List<Object> stackValues() {
+        return List.copyOf(stack);
     }
 
     private Map<String, Object> variablesOf(String name) {
@@ -270,11 +282,14 @@ public final class VirtualMachine {
     }
 
     private void printArray(List<?> operand) {
-        StringJoiner result = new StringJoiner(", ", "[", "]");
+        StringBuilder result = new StringBuilder("[");
+        boolean first = true;
         for (Object value : requireArray((String) operand.get(0))) {
-            result.add(format(operand.get(1), value));
+            if (!first) result.append(", ");
+            result.append(format(operand.get(1), value));
+            first = false;
         }
-        out.print(result);
+        out.print(result.append(']'));
     }
 
     /** Two real operands keep real semantics ((-8) ^ 0.5 is an error); otherwise both become complex. */
@@ -319,7 +334,10 @@ public final class VirtualMachine {
     private int compareTopValues() {
         double right = popReal();
         double left = popReal();
-        return Double.compare(left, right);
+        // Language values are finite; primitive comparisons have identical behaviour on JVM and Wasm.
+        if (left < right) return -1;
+        if (left > right) return 1;
+        return 0;
     }
 
     private void logicalAnd() {
@@ -339,7 +357,7 @@ public final class VirtualMachine {
     }
 
     private double factorial(double value) {
-        if (value < 0 || value != Math.rint(value)) {
+        if (value < 0 || value != Math.floor(value)) {
             throw new ArithmeticException(
                     "Факториал определён только для целых неотрицательных чисел: " + value);
         }
@@ -402,7 +420,7 @@ public final class VirtualMachine {
     }
 
     private int toSize(double value) {
-        if (!Double.isFinite(value) || value < 0 || value != Math.rint(value)
+        if (!Double.isFinite(value) || value < 0 || value != Math.floor(value)
                 || value > Integer.MAX_VALUE) {
             throw new IllegalArgumentException(
                     "Размер массива должен быть целым неотрицательным числом: " + value);
@@ -411,7 +429,7 @@ public final class VirtualMachine {
     }
 
     private int toIndex(String name, double value, int length) {
-        if (!Double.isFinite(value) || value != Math.rint(value)) {
+        if (!Double.isFinite(value) || value != Math.floor(value)) {
             throw new IndexOutOfBoundsException(
                     "Индекс массива '" + name + "' должен быть целым: " + value);
         }
@@ -474,7 +492,7 @@ public final class VirtualMachine {
             return stored;
         }
         double value = (Double) stored;
-        if (value != Math.rint(value)) {
+        if (value != Math.floor(value)) {
             throw new ArithmeticException("Потеря точности: значение " + value + " нельзя сохранить в int");
         }
         requireIntRange(value);

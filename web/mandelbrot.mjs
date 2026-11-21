@@ -1,3 +1,6 @@
+import { loadRuntime, decodeBand } from './wasm-loader.mjs';
+
+const { exports: wasm } = await loadRuntime();
 export const PLANE = Object.freeze({ left: -2.5, right: 1, bottom: -1.3125, top: 1.3125 });
 export const MAX_ZOOM = 1e12;
 
@@ -38,43 +41,19 @@ export function iterationLimit(plane) {
 
 /** Smooth escape time avoids abrupt colour bands; 0 marks no observed escape. */
 export function sampleEscape(re, im, limit = 200) {
-  // Analytically known interior: the main cardioid and period-two bulb.
-  const q = (re - 0.25) ** 2 + im * im;
-  if (q * (q + re - 0.25) < 0.25 * im * im || (re + 1) ** 2 + im * im < 0.0625) {
-    return { iterations: 0, smooth: 0 };
-  }
-  let zr = 0, zi = 0;
-  for (let step = 1; step <= limit; step++) {
-    const nextRe = zr * zr - zi * zi + re;
-    zi = 2 * zr * zi + im;
-    zr = nextRe;
-    const magnitudeSquared = zr * zr + zi * zi;
-    if (magnitudeSquared > 4) {
-      return { iterations: step, smooth: Number.isFinite(magnitudeSquared)
-        ? step + 1 - Math.log2(Math.log(magnitudeSquared) / 2) : step };
-    }
-  }
-  return { iterations: 0, smooth: 0 };
+  return JSON.parse(wasm.sampleEscape(re, im, limit));
 }
 
 export function escapeColor(sample) {
-  if (sample.iterations === 0) return [10, 12, 20];
-  const phase = sample.smooth * 0.12;
-  // A repeating smooth palette retains colour detail even after thousands of iterations.
-  return [0, 2, 4].map(offset => Math.round(128 + 110 * Math.cos(phase + offset)));
+  const color = wasm.escapeColor(sample.smooth, sample.iterations !== 0);
+  return [color >>> 16 & 255, color >>> 8 & 255, color & 255];
 }
 
 export function renderRows(pixels, width, height, fromRow, toRow, plane, limit) {
-  for (let y = fromRow; y < toRow; y++) {
-    for (let x = 0; x < width; x++) {
-      const c = pixelToComplex(x, y, width, height, plane);
-      const color = escapeColor(sampleEscape(c.re, c.im, limit));
-      const offset = (y * width + x) * 4;
-      pixels[offset] = color[0];
-      pixels[offset + 1] = color[1];
-      pixels[offset + 2] = color[2];
-      pixels[offset + 3] = 255;
-    }
+  for (let row = fromRow; row < toRow; row += 64) {
+    const band = wasm.renderBand(plane.left, plane.right, plane.bottom, plane.top,
+      width, height, row, Math.min(row + 64, toRow), limit);
+    pixels.set(decodeBand(band), row * width * 4);
   }
 }
 
@@ -82,16 +61,7 @@ export function renderRows(pixels, width, height, fromRow, toRow, plane, limit) 
 export function computeOrbit(re, im, limit = 80) {
   if (!Number.isFinite(re) || !Number.isFinite(im)) throw new RangeError('C must be finite');
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new RangeError('Steps must be 1–1000');
-  const points = [];
-  let zr = 0, zi = 0;
-  for (let step = 1; step <= limit; step++) {
-    const nextRe = zr * zr - zi * zi + re;
-    zi = 2 * zr * zi + im;
-    zr = nextRe;
-    points.push({ re: zr, im: zi });
-    if (zr * zr + zi * zi > 4) return { points, escaped: true };
-  }
-  return { points, escaped: false };
+  return JSON.parse(wasm.orbit(re, im, limit));
 }
 
 /** Escape step, or 0 when no escape was seen within the limit; this does not prove membership. */
@@ -263,7 +233,11 @@ export class MandelbrotView {
     this.status.textContent = 'Пересчёт точек новой области: 0%';
     worker.onmessage = event => {
       if (!this.active || version !== this.renderVersion) return;
-      if (event.data.pixels) {
+      if (event.data.error) {
+        worker.terminate();
+        this.worker = null;
+        this.status.textContent = event.data.error;
+      } else if (event.data.pixels) {
         this.background = new ImageData(new Uint8ClampedArray(event.data.pixels), width, height);
         worker.terminate();
         this.worker = null;

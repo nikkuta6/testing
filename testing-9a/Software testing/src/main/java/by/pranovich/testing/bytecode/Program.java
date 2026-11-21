@@ -29,7 +29,9 @@ public final class Program {
     public String disassemble() {
         StringBuilder result = new StringBuilder();
         for (int index = 0; index < instructions.size(); index++) {
-            result.append(String.format("%04d  %s%n", index, instructions.get(index)));
+            String address = Integer.toString(index);
+            result.append("0".repeat(Math.max(0, 4 - address.length())))
+                    .append(address).append("  ").append(instructions.get(index)).append('\n');
         }
         return result.toString();
     }

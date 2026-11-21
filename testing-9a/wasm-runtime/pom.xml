@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>by.pranovich</groupId>
+  <artifactId>wasm-runtime</artifactId>
+  <version>1.0-SNAPSHOT</version>
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <teavm.version>0.16.0</teavm.version>
+  </properties>
+  <dependencies>
+    <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>6.0.3</version><scope>test</scope></dependency>
+    <dependency><groupId>org.junit.platform</groupId><artifactId>junit-platform-suite</artifactId><version>6.0.3</version><scope>test</scope></dependency>
+    <dependency>
+      <groupId>org.teavm</groupId><artifactId>teavm-classlib</artifactId><version>${teavm.version}</version><scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.teavm</groupId><artifactId>teavm-jso-apis</artifactId><version>${teavm.version}</version><scope>provided</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.15.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId><artifactId>build-helper-maven-plugin</artifactId><version>3.6.0</version>
+        <executions><execution><id>language-core</id><phase>generate-sources</phase><goals><goal>add-source</goal></goals>
+          <configuration><sources><source>${project.basedir}/../Software testing/src/main/java</source></sources></configuration>
+        </execution><execution><id>regression-fixtures</id><phase>generate-test-sources</phase><goals><goal>add-test-source</goal></goals>
+          <configuration><sources><source>${project.basedir}/../Software testing/src/test/java</source></sources></configuration>
+        </execution></executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.4</version>
+        <configuration>
+          <includes><include>**/WasmRuntimeTest.java</include><include>**/ParityFixtureTest.java</include></includes>
+          <systemPropertyVariables>
+            <languageTestSources>${project.basedir}/../Software testing/src/test/java</languageTestSources>
+            <parityOutput>${project.build.directory}/parity-fixtures.json</parityOutput>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.teavm</groupId><artifactId>teavm-maven-plugin</artifactId><version>${teavm.version}</version>
+        <executions>
+          <execution><id>wasm</id><phase>prepare-package</phase><goals><goal>compile</goal></goals>
+            <configuration>
+              <targetDirectory>${project.build.directory}/wasm</targetDirectory>
+              <targetFileName>app.wasm</targetFileName>
+              <targetType>WEBASSEMBLY_GC</targetType>
+              <mainClass>by.pranovich.wasm.WasmRuntime</mainClass>
+              <optimizationLevel>ADVANCED</optimizationLevel>
+              <minifying>true</minifying>
+            </configuration>
+          </execution>
+          <execution><id>wasm-loader</id><phase>prepare-package</phase><goals><goal>copy-webassembly-gc-runtime</goal></goals>
+            <configuration>
+              <targetDirectory>${project.build.directory}/wasm</targetDirectory>
+              <modular>true</modular><runtimeFileName>app.wasm-runtime.mjs</runtimeFileName>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

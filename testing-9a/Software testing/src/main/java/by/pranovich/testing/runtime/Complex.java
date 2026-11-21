@@ -31,12 +31,20 @@ public record Complex(double re, double im) {
         if (other.re == 0.0 && other.im == 0.0) {
             throw new ArithmeticException("Деление на ноль");
         }
-        int scale = Math.getExponent(Math.max(Math.abs(other.re), Math.abs(other.im)));
-        double c = Math.scalb(other.re, -scale);
-        double d = Math.scalb(other.im, -scale);
+        double largest = Math.max(Math.abs(other.re), Math.abs(other.im));
+        int scale = (int) ((Double.doubleToRawLongBits(largest) >>> 52) & 0x7ff) - 1023;
+        double c = scaleByPowerOfTwo(other.re, -scale);
+        double d = scaleByPowerOfTwo(other.im, -scale);
         double denominator = c * c + d * d;
-        return new Complex(Math.scalb((re * c + im * d) / denominator, -scale),
-                Math.scalb((im * c - re * d) / denominator, -scale));
+        return new Complex(scaleByPowerOfTwo((re * c + im * d) / denominator, -scale),
+                scaleByPowerOfTwo((im * c - re * d) / denominator, -scale));
+    }
+
+    /** Exact power-of-two factors, split so no intermediate factor overflows on JVM or Wasm. */
+    private static double scaleByPowerOfTwo(double value, int exponent) {
+        while (exponent > 512) { value *= 0x1p512; exponent -= 512; }
+        while (exponent < -512) { value *= 0x1p-512; exponent += 512; }
+        return value * Double.longBitsToDouble((long) (exponent + 1023) << 52);
     }
 
     /**
@@ -44,7 +52,7 @@ public record Complex(double re, double im) {
      * A negative exponent inverts the base first, so 2^-2000 underflows to 0 instead of 1 / Infinity.
      */
     public Complex pow(Complex exponent) {
-        if (exponent.im == 0 && exponent.re == Math.rint(exponent.re)
+        if (exponent.im == 0 && exponent.re == Math.floor(exponent.re)
                 && Math.abs(exponent.re) <= Integer.MAX_VALUE) {
             Complex result = ONE;
             Complex base = exponent.re < 0 ? ONE.dividedBy(this) : this;

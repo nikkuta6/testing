@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { computeOrbit, escapeIterations, pixelToComplex, complexToPixel, PLANE,
   zoomPlane, zoomLevel, iterationLimit, sampleEscape, escapeColor, renderRows, MAX_ZOOM
-} from '../../main/resources/static/mandelbrot.mjs';
+} from '../dist/mandelbrot.mjs';
 
 test('orbit starts at C, follows z² + C and includes the first escaping point', () => {
   assert.deepEqual(computeOrbit(1, 0), {
