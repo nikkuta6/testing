@@ -209,6 +209,25 @@ h3:first-of-type {
   color: #d4d4d4;
 }
 
+/* Окно «Графика» на весь экран; !important перебивает ширину, которую ставит Split.js */
+#win-canvas.canvas-maximized {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Холст 400x300 вписан в окно с сохранением пропорций */
+#canvas-view {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  min-height: 0;
+  cursor: crosshair;
+}
+
 .console-log {
   background: #1e1e1e;
   color: #a9ffaf;
@@ -355,6 +374,18 @@ h3:first-of-type {
         </div>
       </div>
 
+      <!-- Окно Графики: color, point, line, rect, circle, clear -->
+      <div class="window-box panel-sub-window" id="win-canvas">
+        <h3>Графика
+          <span id="canvas-coords" style="margin-left: 12px; font-weight: normal;" title="Координаты последнего клика по холсту"></span>
+          <button class="header-btn" id="canvas-fullscreen-btn" title="Открыть холст на весь экран (Esc — выход)"
+                  style="margin-left: auto; padding: 0 6px; line-height: 14px;">⛶</button>
+        </h3>
+        <div class="window-body" style="overflow: hidden; background: #1e1e1e;">
+          <canvas id="canvas-view" width="400" height="300"></canvas>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -382,8 +413,9 @@ let windowSizesStorage = savedSettings.windowSizesStorage || {
 
 // Расширяем дефолтные настройки (добавляем базовые 50/50 для низа)
 let bottomWindowSizesStorage = savedSettings.bottomWindowSizesStorage || {
-  'win-global-vars': 50,
-  'win-output': 50
+  'win-global-vars': 33.33,
+  'win-output': 33.33,
+  'win-canvas': 33.34
 };
 
 function saveLayoutToStorage() {
@@ -501,10 +533,14 @@ savedOrder.forEach(id => {
 
 // Восстановление нижней панели
 const bottomContainer = document.getElementById('bottom-sortable-container');
-const savedBottomOrder = savedSettings.bottomWindowsOrder || ['win-global-vars', 'win-output']; 
+const savedBottomOrder = savedSettings.bottomWindowsOrder || ['win-global-vars', 'win-output', 'win-canvas']; 
 savedBottomOrder.forEach(id => {
   const el = document.getElementById(id);
   if (el && bottomContainer) bottomContainer.appendChild(el); 
+});
+// Окна, которых нет в сохранённом порядке (например, новое окно Графики), — в конец
+['win-global-vars', 'win-output', 'win-canvas'].forEach(id => {
+  if (!savedBottomOrder.includes(id)) bottomContainer.appendChild(document.getElementById(id));
 });
 
 initRightSplit();
@@ -560,7 +596,7 @@ function LangHighlightRules() {
       { token: 'comment', regex: '/\\*', next: 'comment' },
       { token: 'storage.type', regex: '\\b(?:int|float|complex|void)\\b' },
       { token: 'keyword.control', regex: '\\b(?:if|else|while|fun|return)\\b' },
-      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|re|im|conj|arg|_pi|_e)\\b' },
+      { token: 'support.function', regex: '\\b(?:print|sin|cos|cod|tg|ctg|abs|max|min|re|im|conj|arg|_pi|_e|color|point|line|rect|circle|clear)\\b' },
       { token: 'constant.numeric', regex: '(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?(?:i\\b)?' },
       { token: 'variable', regex: '[A-Za-z_\\u0400-\\u04FF][\\w\\u0400-\\u04FF]*' },
       { token: 'keyword.operator', regex: '<>|<=|>=|==|&&|\\|\\||[-+*/^!<>=]' },
@@ -670,7 +706,10 @@ function initBottomSplit() {
   const currentBottomIDs = Array.from(container.querySelectorAll('.panel-sub-window')).map(el => el.id);
   
   // Строим массив размеров на основе текущего порядка ID окон
-  const orderedBottomSizes = currentBottomIDs.map(id => bottomWindowSizesStorage[id] || (100 / currentBottomIDs.length));
+  // Нормализуем: в сохранённых размерах может не быть нового окна
+  const rawSizes = currentBottomIDs.map(id => bottomWindowSizesStorage[id] || (100 / currentBottomIDs.length));
+  const rawTotal = rawSizes.reduce((sum, size) => sum + size, 0);
+  const orderedBottomSizes = rawSizes.map(size => size / rawTotal * 100);
 
   bottomSplit = Split(currentBottomIDs.map(id => '#' + id), {
     sizes: orderedBottomSizes,
@@ -701,7 +740,9 @@ initBottomSplit();
 // Обновленный Sortable для нижней панели (пересобирает сплит при смене порядка окон)
 Sortable.create(bottomContainer, {
     animation: 150,
-    handle: 'h3', 
+    handle: 'h3',
+    filter: '.header-btn', // клик по кнопке в заголовке не начинает перетаскивание
+    preventOnFilter: true,
     ghostClass: 'sortable-ghost',
     forceFallback: true,
     fallbackClass: "sortable-fallback",
@@ -831,6 +872,53 @@ function showMemory(variables, stack, locals = {}) {
   document.getElementById('locals-view').textContent = lines(locals) || '(нет)';
 }
 
+// Рисует команды VM ("line 0.0 0.0 10.0 10.0") на холсте: начало координат — левый верхний угол, фон чёрный, цвет по умолчанию белый
+function showCanvas(commands) {
+  const view = document.getElementById('canvas-view');
+  const c = view.getContext('2d');
+  const wipe = () => { const color = c.fillStyle; c.fillStyle = '#000'; c.fillRect(0, 0, view.width, view.height); c.fillStyle = color; };
+  c.fillStyle = c.strokeStyle = '#fff';
+  wipe();
+  for (const command of commands) {
+    const [name, ...args] = command.split(' ');
+    const n = args.map(Number);
+    switch (name) {
+      case 'clear': wipe(); break;
+      case 'color': c.fillStyle = c.strokeStyle = `rgb(${n[0]}, ${n[1]}, ${n[2]})`; break;
+      case 'point': c.fillRect(n[0], n[1], 1, 1); break;
+      case 'line': c.beginPath(); c.moveTo(n[0], n[1]); c.lineTo(n[2], n[3]); c.stroke(); break;
+      case 'rect': c.strokeRect(n[0], n[1], n[2], n[3]); break;
+      case 'circle': c.beginPath(); c.arc(n[0], n[1], Math.abs(n[2]), 0, 2 * Math.PI); c.stroke(); break;
+    }
+  }
+}
+showCanvas([]);
+
+// Клик по холсту показывает координаты точки в системе холста (400x300), с учётом масштаба и полей object-fit: contain
+document.getElementById('canvas-view').addEventListener('click', e => {
+  const view = e.currentTarget;
+  const box = view.getBoundingClientRect();
+  const scale = Math.min(box.width / view.width, box.height / view.height);
+  const x = Math.round((e.clientX - box.left - (box.width - view.width * scale) / 2) / scale);
+  const y = Math.round((e.clientY - box.top - (box.height - view.height * scale) / 2) / scale);
+  if (x < 0 || y < 0 || x > view.width || y > view.height) return; // клик по полям вокруг холста
+  document.getElementById('canvas-coords').textContent = `x = ${x}, y = ${y}`;
+});
+
+// Холст на весь экран: окно растягивается поверх IDE, а где браузер разрешает — ещё и настоящий полноэкранный режим
+function toggleCanvasFullscreen(on) {
+  const win = document.getElementById('win-canvas');
+  win.classList.toggle('canvas-maximized', on);
+  document.getElementById('canvas-fullscreen-btn').textContent = on ? '🗗' : '⛶';
+  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+  else if (document.fullscreenElement) document.exitFullscreen();
+}
+document.getElementById('canvas-fullscreen-btn').addEventListener('click', () =>
+  toggleCanvasFullscreen(!document.getElementById('win-canvas').classList.contains('canvas-maximized')));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleCanvasFullscreen(false); });
+// Esc в настоящем полноэкранном режиме перехватывает браузер — тогда выходим по событию
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) toggleCanvasFullscreen(false); });
+
 function showOutput(text) {
   document.querySelector('#win-output .window-body.console-log').replaceChildren();
   text.split('\n').forEach((line, i, lines) => {
@@ -858,6 +946,7 @@ window.runProgram = async function() {
   showBytecode(result.bytecode);
   showMemory(result.variables, result.stack, result.locals);
   showOutput(result.output);
+  showCanvas(result.canvas);
   if (result.runtimeError) {
     window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
   }
@@ -902,6 +991,7 @@ function debugGo(index) {
     showBytecode(result.bytecode, step.pc);
     showMemory(step.variables, step.stack, step.locals);
     showOutput(result.output.slice(0, step.out));
+    showCanvas(result.canvas.slice(0, step.cv));
     document.getElementById('debug-status').textContent =
       `шаг ${debug.index + 1}/${steps.length}` + (line ? `, строка ${line}` : '');
     return;
@@ -914,6 +1004,7 @@ function debugGo(index) {
   showBytecode(result.bytecode, failed ? last.pc : -1, 'bc-error');
   showMemory(result.variables, result.stack, result.locals);
   showOutput(result.output);
+  showCanvas(result.canvas);
   if (result.runtimeError) {
     window.idePrint('Ошибка выполнения: ' + result.runtimeError, { color: '#ff6b6b', bold: true });
   }

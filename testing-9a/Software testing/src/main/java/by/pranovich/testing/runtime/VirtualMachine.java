@@ -8,12 +8,18 @@ import by.pranovich.testing.bytecode.Program;
 
 import java.io.PrintStream;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.IntConsumer;
 
 /**
@@ -24,6 +30,7 @@ public final class VirtualMachine {
     /** Largest int magnitude: every integer up to it is exact in a double, 2^53 + 1 already is not. */
     public static final double MAX_EXACT_INT = 0x1p53 - 1;
     private static final int MAX_CALL_DEPTH = 10_000;
+    private static final int MAX_DRAW_COMMANDS = 100_000;
 
     /** A call of a user function: names in {@code locals} live in this frame, all others are global. */
     private record Frame(int returnAddress, List<?> locals,
@@ -33,20 +40,46 @@ public final class VirtualMachine {
         }
     }
 
+    // Every goroutine is its own VirtualMachine: stack and frames (and the program counter) are its own.
     // Values are Double (int, float) or Complex; the parser guarantees which operations they meet.
     private final Deque<Object> stack = new ArrayDeque<>();
-    // Global (top-level) memory; locals of the running function are in frames.peek().
-    private final Map<String, Object> variables = new HashMap<>();
-    private final Map<String, Object[]> arrays = new HashMap<>();
     private final Deque<Frame> frames = new ArrayDeque<>();
+    // Shared by all goroutines of a run: global (top-level) memory, output, started goroutines, first failure.
+    // Element writes to a shared array are not synchronized: a data race is the program's own, as in Go.
+    private final Map<String, Object> variables;
+    private final Map<String, Object[]> arrays;
     private final PrintStream out;
+    // Drawing commands such as "line 0.0 0.0 10.0 10.0", in execution order; the IDE paints them on a canvas.
+    private final List<String> canvas;
+    private final List<Thread> goroutines;
+    private final AtomicReference<RuntimeException> goroutineError;
+    // The lock of sync blocks; it also makes writes inside them, array elements included, visible to the next holder.
+    private final ReentrantLock syncLock;
 
     public VirtualMachine() {
         this(System.out);
     }
 
     public VirtualMachine(PrintStream out) {
+        this(out, new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), Collections.synchronizedList(new ArrayList<>()),
+                new CopyOnWriteArrayList<>(), new AtomicReference<>(), new ReentrantLock());
+    }
+
+    /** A goroutine of {@code parent}: fresh stack and frames, shared memory. */
+    private VirtualMachine(VirtualMachine parent) {
+        this(parent.out, parent.variables, parent.arrays, parent.canvas, parent.goroutines, parent.goroutineError, parent.syncLock);
+    }
+
+    private VirtualMachine(PrintStream out, Map<String, Object> variables, Map<String, Object[]> arrays,
+                           List<String> canvas, List<Thread> goroutines, AtomicReference<RuntimeException> goroutineError,
+                           ReentrantLock syncLock) {
         this.out = out;
+        this.variables = variables;
+        this.arrays = arrays;
+        this.canvas = canvas;
+        this.goroutines = goroutines;
+        this.goroutineError = goroutineError;
+        this.syncLock = syncLock;
     }
 
     public void run(Program program) {
@@ -54,11 +87,21 @@ public final class VirtualMachine {
     }
 
     /** Runs the program, calling {@code beforeStep} with the program counter before every instruction. */
+    /**
+     * Unlike Go, the run ends only when every goroutine has finished; the first goroutine failure
+     * is then rethrown, unless the main code failed first.
+     */
     public void run(Program program, IntConsumer beforeStep) {
         resetMemory();
-        List<Instruction> code = program.instructions();
-        int programCounter = 0;
+        try {
+            execute(program.instructions(), 0, beforeStep);
+        } finally {
+            releaseSyncLock();
+        }
+        awaitGoroutines();
+    }
 
+    private void execute(List<Instruction> code, int programCounter, IntConsumer beforeStep) {
         while (programCounter < code.size()) {
             beforeStep.accept(programCounter);
             Instruction instruction = code.get(programCounter);
@@ -97,6 +140,7 @@ public final class VirtualMachine {
                 }
                 case PRINT -> out.print(format(instruction.operand(), stack.pop()));
                 case PRINT_SPACE -> out.print(" ");
+                case DRAW -> draw((FunctionCall) instruction.operand());
                 case PRINT_NEWLINE -> out.print('\n');
                 case CALL_FUN -> programCounter = callFunction(code, programCounter) - 1;
                 case ENTER -> { }
@@ -104,6 +148,9 @@ public final class VirtualMachine {
                 case NO_RETURN -> throw new IllegalStateException(
                         "Функция '" + instruction.operand() + "' завершилась без return");
                 case POP -> stack.pop();
+                case LOCK -> lockSync();
+                case UNLOCK -> syncLock.unlock();
+                case GO -> programCounter = startGoroutine(code, programCounter, (Integer) instruction.operand());
                 case HALT -> {
                     return;
                 }
@@ -116,7 +163,68 @@ public final class VirtualMachine {
         stack.clear();
         variables.clear();
         arrays.clear();
+        canvas.clear();
         frames.clear();
+        goroutines.clear();
+        goroutineError.set(null);
+    }
+
+    /**
+     * GO is followed by the CALL_FUN of the function: its arguments move to the stack of a new goroutine,
+     * which runs the call in a platform thread and ends when the function returns past the end of the code.
+     * Returns the index of that CALL_FUN, so that the caller goes on after it.
+     */
+    private int startGoroutine(List<Instruction> code, int programCounter, int argumentCount) {
+        int call = programCounter + 1;
+        int entry = (Integer) code.get(call).operand();
+        VirtualMachine goroutine = new VirtualMachine(this);
+        for (Object argument : popArguments(argumentCount)) {
+            goroutine.stack.push(argument);
+        }
+        goroutine.frames.push(new Frame(code.size(), (List<?>) code.get(entry).operand()));
+        goroutines.add(Thread.ofPlatform().daemon().name("go-" + goroutines.size()).start(() -> {
+            try {
+                goroutine.execute(code, entry, _ -> { });
+            } catch (RuntimeException exception) {
+                goroutineError.compareAndSet(null, exception);
+            } finally {
+                goroutine.releaseSyncLock();
+            }
+        }));
+        return call;
+    }
+
+    /** Interruptible, so that a run stopped by a timeout does not stay blocked on the lock. */
+    private void lockSync() {
+        try {
+            syncLock.lockInterruptibly();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Выполнение прервано во время ожидания блока sync", exception);
+        }
+    }
+
+    /** A goroutine that failed inside sync blocks must not leave the others waiting forever. */
+    private void releaseSyncLock() {
+        while (syncLock.isHeldByCurrentThread()) {
+            syncLock.unlock();
+        }
+    }
+
+    /** Goroutines may start goroutines, so the list can grow while it is being joined. */
+    private void awaitGoroutines() {
+        try {
+            for (int index = 0; index < goroutines.size(); index++) {
+                goroutines.get(index).join();
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Выполнение прервано во время ожидания горутин", exception);
+        }
+        RuntimeException failure = goroutineError.get();
+        if (failure != null) {
+            throw failure;
+        }
     }
 
     /** CALL_FUN points at the ENTER of the function, whose operand lists the locals of the new frame. */
@@ -325,6 +433,23 @@ public final class VirtualMachine {
             default -> throw new IllegalArgumentException(
                     "Неизвестная встроенная функция '" + name + "'");
         };
+    }
+
+    private void draw(FunctionCall command) {
+        if (canvas.size() >= MAX_DRAW_COMMANDS) {
+            throw new IllegalStateException("Слишком много команд рисования (больше " + MAX_DRAW_COMMANDS + ")");
+        }
+        StringJoiner line = new StringJoiner(" ");
+        line.add(command.name());
+        for (Object value : popArguments(command.argumentCount())) {
+            line.add(value.toString());
+        }
+        canvas.add(line.toString());
+    }
+
+    /** Drawing commands of the last run: name and arguments separated by spaces. */
+    public List<String> canvas() {
+        return canvas;
     }
 
     private Object[] popArguments(int count) {

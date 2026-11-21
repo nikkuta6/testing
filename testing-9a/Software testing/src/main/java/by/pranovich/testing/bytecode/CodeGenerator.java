@@ -82,6 +82,10 @@ public final class CodeGenerator {
         emit(Opcode.CALL, new FunctionCall(name, argumentCount));
     }
 
+    public void emitDraw(String name, int argumentCount) {
+        emit(Opcode.DRAW, new FunctionCall(name, argumentCount));
+    }
+
     /** The operand is the entry address; -1 until the function is declared and the call is patched. */
     public int emitCallFunction(int address) {
         int index = instructions.size();

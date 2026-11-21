@@ -34,6 +34,7 @@ public final class RecursiveDescentParser {
     private Signature currentFunction;
     private int functionStart;
     private int nesting;
+    private int syncDepth;
 
     private record Signature(String name, String returnType, List<String> parameterNames,
                             List<String> parameterTypes) {
@@ -97,8 +98,11 @@ public final class RecursiveDescentParser {
             case "if" -> parseIf();
             case "while" -> parseWhile();
             case "print" -> parsePrint();
+            case "color", "point", "line", "rect", "circle", "clear" -> parseDraw();
             case "fun" -> parseFunction();
             case "return" -> parseReturn();
+            case "go" -> parseGo();
+            case "sync" -> parseSync();
             case "else" -> throw error("'else' без предшествующего 'if'");
             default -> {
                 char c = input.charAt(pos);
@@ -182,7 +186,7 @@ public final class RecursiveDescentParser {
         }
         if (functions.containsKey(name) && peekSymbol("(")) {
             // A call statement discards the result.
-            if (!parseUserCall(name).equals("void")) {
+            if (!parseUserCall(name, false).equals("void")) {
                 codegen.emit(Opcode.POP);
             }
         } else if (matchSymbol("[")) {
@@ -252,6 +256,16 @@ public final class RecursiveDescentParser {
         codegen.patchJump(jzIdx, codegen.size());
     }
 
+    /** One lock for the whole program: sync blocks of all goroutines exclude each other; nesting is allowed. */
+    private void parseSync() {
+        readWord();
+        codegen.emit(Opcode.LOCK);
+        syncDepth++;
+        parseBlock();
+        syncDepth--;
+        codegen.emit(Opcode.UNLOCK);
+    }
+
     private void parsePrint() {
         readWord();
         expectSymbol("(");
@@ -268,6 +282,31 @@ public final class RecursiveDescentParser {
         }
         expectSymbol(")");
         codegen.emit(Opcode.PRINT_NEWLINE);
+        expectSymbol(";");
+    }
+
+    /** Canvas commands: color(r, g, b), point(x, y), line(x1, y1, x2, y2), rect(x, y, w, h), circle(x, y, r), clear(). */
+    private void parseDraw() {
+        String name = readWord();
+        expectSymbol("(");
+        int count = 0;
+        if (!peekSymbol(")")) {
+            do {
+                requireReal(parseExpression(), "Функция '" + name + "'");
+                count++;
+            } while (matchSymbol(","));
+        }
+        expectSymbol(")");
+        int expected = switch (name) {
+            case "color", "circle" -> 3;
+            case "point" -> 2;
+            case "line", "rect" -> 4;
+            default -> 0;
+        };
+        if (count != expected) {
+            throw error("Функция '" + name + "' принимает аргументов: " + expected);
+        }
+        codegen.emitDraw(name, count);
         expectSymbol(";");
     }
 
@@ -309,6 +348,7 @@ public final class RecursiveDescentParser {
         locals.clear();
         currentFunction = null;
         nesting = 0;
+        syncDepth = 0;
     }
 
     /** Pre-pass over the text: only {@code fun} headers are read, their errors are left to the main pass. */
@@ -426,6 +466,10 @@ public final class RecursiveDescentParser {
         if (currentFunction == null) {
             throw error("'return' вне функции");
         }
+        if (syncDepth > 0) {
+            // the jump out of the block would skip UNLOCK
+            throw error("'return' внутри блока sync запрещён");
+        }
         String returnType = currentFunction.returnType();
         if (returnType.equals("void") != peekSymbol(";")) {
             throw error(returnType.equals("void")
@@ -439,8 +483,23 @@ public final class RecursiveDescentParser {
         expectSymbol(";");
     }
 
-    /** Arguments follow the assignment rules: int and float widen to complex, int parameters check precision at run time. */
-    private String parseUserCall(String name) {
+    /** {@code go f(...);} runs the call in a new goroutine; its result, if any, is dropped. */
+    private void parseGo() {
+        readWord();
+        String name = expectIdentifier();
+        skipWhitespace();
+        if (!functions.containsKey(name) || !peekSymbol("(")) {
+            throw error("После 'go' ожидался вызов объявленной функции");
+        }
+        parseUserCall(name, true);
+        expectSymbol(";");
+    }
+
+    /**
+     * Arguments follow the assignment rules: int and float widen to complex, int parameters check precision at run time.
+     * With {@code go} the call is preceded by GO with the argument count, so the VM moves them to the new goroutine.
+     */
+    private String parseUserCall(String name, boolean go) {
         Signature function = functions.get(name);
         expectSymbol("(");
         int count = 0;
@@ -459,6 +518,9 @@ public final class RecursiveDescentParser {
         }
         expectSymbol(")");
 
+        if (go) {
+            codegen.emit(Opcode.GO, count);
+        }
         Integer address = functionAddresses.get(name);
         int call = codegen.emitCallFunction(address == null ? -1 : address);
         if (address == null) {
@@ -708,7 +770,7 @@ public final class RecursiveDescentParser {
 
     private String parseFunctionCall(String name) {
         if (functions.containsKey(name)) {
-            String type = parseUserCall(name);
+            String type = parseUserCall(name, false);
             if (type.equals("void")) {
                 throw error("Функция '" + name + "' объявлена как void и не может быть частью выражения");
             }
@@ -879,7 +941,8 @@ public final class RecursiveDescentParser {
 
     private boolean isKeyword(String word) {
         return switch (word) {
-            case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return",
+            case "int", "float", "complex", "void", "if", "else", "while", "print", "fun", "return", "go", "sync",
+                    "color", "point", "line", "rect", "circle", "clear",
                     "sin", "cos", "cod", "tg", "ctg", "abs", "max", "min", "_pi", "_e",
                     "re", "im", "conj", "arg" -> true;
             default -> false;
